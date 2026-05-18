@@ -1,9 +1,9 @@
 /* ============================================================================
-   Match Live Mode — Arena Dominance During Active Matches
+   Match Live Mode — The Arena Becomes the Show
    ============================================================================
-   When body.match-live is set, the arena expands to dominate the viewport.
-   The editor slides away, the sidebar compresses, and the canvas becomes
-   the centerpiece with cinematic effects.
+   When body.match-live is set the arena takes over the viewport: the editor
+   and sidebar slide away, the canvas becomes the stage, and a broadcast-style
+   overlay (scoreboard, combatant HUD, cinematic intro) frames the fight.
    ============================================================================ */
 
 /* ---- Transition Setup (always present for smooth toggling) ---- */
@@ -87,7 +87,7 @@ body.match-live .top-bar-actions .shortcut-hint {
   overflow: hidden;
 }
 
-/* ---- Match Live: Arena Canvas Enhancement ---- */
+/* ---- Match Live: Arena Canvas Stage ---- */
 
 body.match-live .arena-canvas-wrap {
   flex: 1;
@@ -104,66 +104,473 @@ body.match-live #arena-canvas {
   border-radius: var(--radius-xl);
 }
 
-/* ---- Match Live: Arena Header Overlay ---- */
+/* ---- Match Live: Arena Header → Toggle Strip ---- */
 
 body.match-live .arena-header {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10;
-  background: linear-gradient(180deg, rgba(8, 8, 15, 0.9), transparent);
+  z-index: 11;
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  background: linear-gradient(180deg, rgba(6, 6, 14, 0.82) 0%, transparent 100%);
   border-bottom: none;
-  padding: 12px 20px;
+  padding: 12px 18px 22px;
+  pointer-events: none;
 }
 
-body.match-live .arena-header .label {
-  font-size: 10px;
-  letter-spacing: 3px;
-  color: var(--accent-cyan);
-}
-
+/* In match-live the scoreboard carries match status; hide the plain label. */
+body.match-live .arena-header .label,
 body.match-live #arena-status {
-  background: rgba(0, 212, 255, 0.1);
-  border-color: rgba(0, 212, 255, 0.2);
+  display: none;
+}
+
+body.match-live .arena-toggles {
+  pointer-events: auto;
+}
+
+/* ============================================================================
+   Broadcast Scoreboard
+   ============================================================================ */
+
+.match-scoreboard {
+  display: none;
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 14;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  background: rgba(10, 11, 20, 0.82);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: calc(100% - 320px);
+}
+
+body.match-live .match-scoreboard {
+  display: flex;
+  animation: fade-in-down 0.4s ease-out 0.1s both;
+}
+
+.sb-team {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px;
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.4px;
+  min-width: 0;
+}
+
+.sb-team-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.sb-team-0 {
   color: var(--accent-cyan);
-  font-weight: 600;
+  background: linear-gradient(90deg, rgba(0, 212, 255, 0.16), transparent);
 }
 
-/* ---- Match Live: Replay Controls Enhancement ---- */
+.sb-team-1 {
+  color: var(--accent-red);
+  background: linear-gradient(270deg, rgba(255, 51, 85, 0.16), transparent);
+  justify-content: flex-end;
+}
 
-body.match-live .replay-controls {
-  background: rgba(10, 10, 20, 0.95);
+.sb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.sb-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 16px;
+  background: rgba(0, 0, 0, 0.35);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sb-vs {
+  font-family: var(--font-sans);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+}
+
+.sb-readout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.sb-arena {
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.sb-tick {
+  color: var(--accent-cyan);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================================
+   Combatant HUD — team rosters with live HP bars
+   ============================================================================ */
+
+.match-hud {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+}
+
+body.match-live .match-hud {
+  display: block;
+}
+
+.match-hud-team {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: hud-slide-in 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) 0.15s both;
+}
+
+.match-hud-team-0 { left: 18px; }
+.match-hud-team-1 {
+  right: 18px;
+  animation-name: hud-slide-in-right;
+}
+
+@keyframes hud-slide-in {
+  from { opacity: 0; transform: translate(-24px, -50%); }
+  to   { opacity: 1; transform: translate(0, -50%); }
+}
+@keyframes hud-slide-in-right {
+  from { opacity: 0; transform: translate(24px, -50%); }
+  to   { opacity: 1; transform: translate(0, -50%); }
+}
+
+.hud-team-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 2px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.match-hud-team-1 .hud-team-header {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+
+.match-hud-team-0 .hud-team-header { color: var(--accent-cyan); }
+.match-hud-team-1 .hud-team-header { color: var(--accent-red); }
+
+.hud-team-header .hud-team-bar {
+  flex: 1;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, currentColor, transparent);
+  opacity: 0.5;
+}
+.match-hud-team-1 .hud-team-header .hud-team-bar {
+  background: linear-gradient(270deg, currentColor, transparent);
+}
+
+/* ---- Individual combatant card ---- */
+
+.hud-bot {
+  background: rgba(10, 11, 20, 0.82);
   backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(0, 212, 255, 0.08);
-  padding: 10px 20px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  box-shadow: var(--shadow-md);
+  transition: border-color var(--transition-med), opacity var(--transition-med);
 }
 
-/* ---- Match Live: Match Results Overlay ---- */
+.match-hud-team-0 .hud-bot { border-left: 3px solid var(--accent-cyan); }
+.match-hud-team-1 .hud-bot { border-right: 3px solid var(--accent-red); }
+
+.hud-bot.is-down {
+  opacity: 0.5;
+  filter: saturate(0.3);
+}
+
+.hud-bot-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.match-hud-team-1 .hud-bot-top { flex-direction: row-reverse; }
+
+.hud-bot-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.hud-bot-icon.brawler { background: var(--accent-red-dim); color: var(--accent-red); }
+.hud-bot-icon.ranger  { background: var(--accent-cyan-dim); color: var(--accent-cyan); }
+.hud-bot-icon.tank    { background: var(--accent-orange-dim); color: var(--accent-orange); }
+.hud-bot-icon.support { background: var(--accent-green-dim); color: var(--accent-green); }
+
+.hud-bot-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.match-hud-team-1 .hud-bot-id { align-items: flex-end; }
+
+.hud-bot-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+.hud-bot-class {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.hud-bot-down-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--accent-red);
+  display: none;
+}
+
+.hud-bot.is-down .hud-bot-down-tag { display: inline; }
+.hud-bot.is-down .hud-bot-hp-text { display: none; }
+
+/* ---- HP bar ---- */
+
+.hud-bot-hp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.match-hud-team-1 .hud-bot-hp { flex-direction: row-reverse; }
+
+.hud-bot-hp-track {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.hud-bot-hp-fill {
+  height: 100%;
+  width: 100%;
+  border-radius: 4px;
+  background: var(--accent-green);
+  transition: width 0.18s linear, background-color 0.3s ease;
+}
+
+.match-hud-team-1 .hud-bot-hp-fill { margin-left: auto; }
+
+.hud-bot-hp-fill.hp-mid  { background: var(--accent-yellow); }
+.hud-bot-hp-fill.hp-low  { background: var(--accent-red); }
+
+.hud-bot-hp-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 30px;
+  text-align: right;
+}
+
+.match-hud-team-1 .hud-bot-hp-text { text-align: left; }
+
+/* ============================================================================
+   Cinematic Match Intro
+   ============================================================================ */
+
+.match-intro {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: radial-gradient(ellipse at center, rgba(8, 9, 18, 0.78), rgba(4, 4, 10, 0.94));
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.match-intro[hidden] { display: none; }
+.match-intro.playing { animation: match-intro-fade 1.8s ease forwards; }
+
+@keyframes match-intro-fade {
+  0%   { opacity: 0; }
+  12%  { opacity: 1; }
+  78%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.match-intro-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.match-intro-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 280px;
+  padding: 0 24px;
+}
+
+.match-intro-side-0 {
+  text-align: right;
+  align-items: flex-end;
+  animation: intro-in-left 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.match-intro-side-1 {
+  text-align: left;
+  align-items: flex-start;
+  animation: intro-in-right 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes intro-in-left {
+  from { opacity: 0; transform: translateX(-60px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes intro-in-right {
+  from { opacity: 0; transform: translateX(60px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.match-intro-tag {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+.match-intro-side-0 .match-intro-tag { color: var(--accent-cyan); }
+.match-intro-side-1 .match-intro-tag { color: var(--accent-red); }
+
+.match-intro-name {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-bright);
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.match-intro-vs {
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  animation: intro-vs-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) 0.25s both;
+}
+
+@keyframes intro-vs-pop {
+  from { opacity: 0; transform: scale(0.3); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.match-intro-arena {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  padding: 6px 18px;
+  border: 1px solid rgba(0, 212, 255, 0.25);
+  border-radius: var(--radius-pill);
+  background: rgba(0, 212, 255, 0.06);
+  animation: fade-in-down 0.6s ease 0.4s both;
+}
+
+/* ============================================================================
+   Match Results Scorecard
+   ============================================================================ */
 
 body.match-live .match-results {
   position: absolute;
-  bottom: 60px;
+  bottom: 20px;
   right: 20px;
-  width: 340px;
-  z-index: 10;
+  width: 320px;
+  z-index: 16;
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: var(--bg-glass);
-  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(11, 12, 22, 0.92);
+  backdrop-filter: blur(18px);
   box-shadow: var(--shadow-lg);
-  animation: results-slide-in 0.4s ease-out;
+  animation: results-slide-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes results-slide-in {
-  from {
-    opacity: 0;
-    transform: translateX(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* ---- Match Live: Exit Button ---- */
@@ -174,15 +581,15 @@ body.match-live .match-results {
   top: 12px;
   right: 16px;
   z-index: 100;
-  padding: 6px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 7px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: var(--radius-pill);
-  background: var(--bg-glass);
+  background: rgba(10, 11, 20, 0.85);
   backdrop-filter: blur(12px);
   color: var(--text-secondary);
   font-family: var(--font-sans);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   transition: all var(--transition-fast);
   letter-spacing: 0.5px;
@@ -198,70 +605,39 @@ body.match-live .match-live-exit {
 .match-live-exit:hover {
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
-  background: rgba(0, 212, 255, 0.08);
+  background: rgba(0, 212, 255, 0.1);
 }
 
 @keyframes fade-in-down {
-  from {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ---- Match Live: Scoreboard Overlay ---- */
+/* ---- Match Live: Replay Controls Enhancement ---- */
 
-.match-scoreboard {
-  display: none;
-  position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  padding: 6px 20px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-glass);
+body.match-live .replay-controls {
+  background: rgba(10, 10, 20, 0.95);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 1px;
-  white-space: nowrap;
-  box-shadow: var(--shadow-md);
+  border-top: 1px solid rgba(0, 212, 255, 0.08);
+  padding: 10px 20px;
 }
 
-body.match-live .match-scoreboard {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  animation: fade-in-down 0.3s ease-out 0.1s both;
+/* ---- Match Live: Responsive ---- */
+
+@media (max-width: 880px) {
+  .match-hud-team { width: 156px; }
+  .match-hud-team-0 { left: 8px; }
+  .match-hud-team-1 { right: 8px; }
+  .hud-bot-name { max-width: 98px; }
+  .match-scoreboard { max-width: calc(100% - 28px); }
+  .match-intro-side { width: 190px; padding: 0 14px; }
+  .match-intro-name { font-size: 21px; }
+  .match-intro-vs { font-size: 24px; }
+  body.match-live .match-results { width: calc(100% - 32px); }
 }
 
-.scoreboard-team {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.scoreboard-team-0 { color: var(--accent-cyan); }
-.scoreboard-team-1 { color: var(--accent-red); }
-
-.scoreboard-vs {
-  color: var(--text-muted);
-  font-size: 10px;
-  letter-spacing: 2px;
-}
-
-.scoreboard-tick {
-  color: var(--text-muted);
-  font-size: 10px;
-  padding-left: 8px;
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
+@media (max-width: 560px) {
+  body.match-live .match-hud { display: none; }
 }
 
 /* ============================================================================
@@ -308,4 +684,20 @@ body.fullpage-battle .match-results {
   background: var(--bg-glass);
   backdrop-filter: blur(16px);
   box-shadow: var(--shadow-lg);
+}
+
+/* ---- Reduced motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .match-hud-team,
+  .match-intro.playing,
+  .match-intro-side-0,
+  .match-intro-side-1,
+  .match-intro-vs,
+  .match-intro-arena,
+  .match-scoreboard,
+  body.match-live .match-results,
+  body.match-live .match-live-exit {
+    animation-duration: 0.01ms !important;
+  }
 }

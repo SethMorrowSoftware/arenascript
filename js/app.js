@@ -1744,6 +1744,7 @@ const arenaSelect = document.getElementById("arena-select");
 const arenaInfoEl = document.getElementById("arena-info");
 const arenaInfoTaglineEl = document.getElementById("arena-info-tagline");
 const arenaInfoDescEl = document.getElementById("arena-info-desc");
+const arenaInfoDifficultyEl = document.getElementById("arena-info-difficulty");
 const presetButtons = document.querySelectorAll(".bot-preset");
 
 // Replay controls
@@ -1777,6 +1778,13 @@ const matchScoreboard = document.getElementById("match-scoreboard");
 const scoreboardTeam0 = document.getElementById("scoreboard-team0");
 const scoreboardTeam1 = document.getElementById("scoreboard-team1");
 const scoreboardTick = document.getElementById("scoreboard-tick");
+const scoreboardArena = document.getElementById("scoreboard-arena");
+const matchHudTeam0 = document.getElementById("match-hud-team0");
+const matchHudTeam1 = document.getElementById("match-hud-team1");
+const matchIntroEl = document.getElementById("match-intro");
+const matchIntroTeam0 = document.getElementById("match-intro-team0");
+const matchIntroTeam1 = document.getElementById("match-intro-team1");
+const matchIntroArena = document.getElementById("match-intro-arena");
 
 if (!canvasEl) {
   throw new Error("Missing required #arena-canvas element in HTML");
@@ -1817,6 +1825,8 @@ let lastReplayTimestamp = 0;
 let lastReplayBookmarks = null;
 let matchLiveMode = false;
 let matchLiveParticipants = null;
+let matchHudRows = new Map();   // robotId -> { row, fill, text } for live HP bars
+let matchIntroTimer = null;     // pending timeout that dismisses the intro splash
 
 // Currently selected arena preset id (used for next match)
 let currentArenaId = DEFAULT_ARENA_ID;
@@ -1849,12 +1859,6 @@ function initArenaSelect() {
     if (preset.id === DEFAULT_ARENA_ID) opt.selected = true;
     arenaSelect.appendChild(opt);
   }
-  // Append a "random procedural" option at the end for players who want the
-  // legacy generator (surprise factor + anti-memorization practice).
-  const randomOpt = document.createElement("option");
-  randomOpt.value = "random";
-  randomOpt.textContent = "Random (Procedural)";
-  arenaSelect.appendChild(randomOpt);
 
   arenaSelect.addEventListener("change", () => {
     currentArenaId = arenaSelect.value;
@@ -1869,17 +1873,15 @@ function initArenaSelect() {
 /** Update the info panel text below the arena selector. */
 function updateArenaInfo() {
   if (!arenaInfoTaglineEl || !arenaInfoDescEl) return;
-  const id = getMatchArenaId();
-  if (id === "random") {
-    arenaInfoTaglineEl.textContent = "Randomized · Seed-driven";
-    arenaInfoDescEl.textContent =
-      "A freshly generated procedural arena based on the match seed. Useful "
-      + "for practicing against layouts you've never seen before.";
-    return;
-  }
-  const preset = getArenaPreset(id);
+  const preset = getArenaPreset(getMatchArenaId());
   arenaInfoTaglineEl.textContent = preset.tagline ?? "";
   arenaInfoDescEl.textContent = preset.description ?? "";
+  if (arenaInfoEl) {
+    arenaInfoEl.style.setProperty("--arena-accent", preset.accent || "#00d4ff");
+  }
+  if (arenaInfoDifficultyEl) {
+    arenaInfoDifficultyEl.textContent = preset.difficulty ?? "";
+  }
 }
 
 // Preview of the selected arena preset happens inside drawIdle() so a
@@ -2879,10 +2881,9 @@ function doCompileAndRun() {
 // ============================================================================
 
 function showMatchResults(result, opponentName) {
-  matchResultsEl.classList.add("visible");
-
+  // The scorecard is built here but stays hidden until the replay finishes —
+  // revealMatchResults() / syncResultsToFrame() control when it appears.
   const isDraw = result.winner === null;
-  const winnerLabel = isDraw ? "DRAW" : result.winner === 0 ? "Your Bot WINS" : `${opponentName} WINS`;
 
   const participants = result.replay.metadata?.participants ?? [];
   const robotToTeam = new Map(participants.map((p) => [p.robotId, p.teamId]));
@@ -2893,7 +2894,7 @@ function showMatchResults(result, opponentName) {
     for (const robot of lastFrame.robots) {
       const teamId = robotToTeam.get(robot.id);
       if (teamId === undefined) continue;
-      teamTotals.get(teamId).hp += Math.max(0, robot.health);
+      teamTotals.get(teamId).hp += Math.max(0, Math.round(robot.health));
     }
   }
   for (const [robotId, stats] of result.robotStats.entries()) {
@@ -2904,35 +2905,76 @@ function showMatchResults(result, opponentName) {
     bucket.kills += stats.kills;
   }
 
+  const team0Name = participants.filter(p => p.teamId === 0)
+    .map(p => prettyParticipantName(p.playerId)).join(" & ") || "Blue Team";
+  const team1Name = (opponentName && opponentName !== "Enemy Team" && opponentName !== "Team Battle")
+    ? opponentName
+    : (participants.filter(p => p.teamId === 1)
+        .map(p => prettyParticipantName(p.playerId)).join(" & ") || "Red Team");
+
   const arenaName = result.replay?.metadata?.arenaName ?? "Unknown Arena";
+  const reason = result.reason.replace(/_/g, " ");
+  const outcome = isDraw ? "draw" : result.winner === 0 ? "win" : "loss";
+  const outcomeLabel = isDraw ? "Draw" : result.winner === 0 ? "Victory" : "Defeat";
+  const winnerLine = isDraw
+    ? "No decisive winner"
+    : `${result.winner === 0 ? team0Name : team1Name} wins`;
+
+  const t0 = teamTotals.get(0);
+  const t1 = teamTotals.get(1);
+
+  const statRow = (label, v0, v1) => {
+    const total = Math.max(v0 + v1, 1);
+    const tie = v0 === v1;
+    return `<div class="result-stat">
+      <span class="result-stat-label">${escapeHtml(label)}</span>
+      <div class="result-stat-row">
+        <span class="result-stat-v result-stat-v0 ${!tie && v0 > v1 ? "lead" : ""}">${v0}</span>
+        <span class="result-stat-bar">
+          <span class="result-stat-fill result-stat-fill-0" style="width:${(v0 / total) * 100}%"></span>
+          <span class="result-stat-fill result-stat-fill-1" style="width:${(v1 / total) * 100}%"></span>
+        </span>
+        <span class="result-stat-v result-stat-v1 ${!tie && v1 > v0 ? "lead" : ""}">${v1}</span>
+      </div>
+    </div>`;
+  };
+
   resultsContentEl.innerHTML = `
-    <div class="result-winner ${isDraw ? 'draw' : ''}">${escapeHtml(winnerLabel)}</div>
-    <div class="result-item"><span class="rl">Arena</span>${escapeHtml(arenaName)}</div>
-    <div class="result-item"><span class="rl">Reason</span>${escapeHtml(result.reason.replace(/_/g, ' '))}</div>
-    <div class="result-item"><span class="rl">Ticks</span>${result.tickCount}</div>
-    <div class="result-item"><span class="rl">Team 0 HP</span>${teamTotals.get(0).hp}</div>
-    <div class="result-item"><span class="rl">Team 1 HP</span>${teamTotals.get(1).hp}</div>
-    <div class="result-item"><span class="rl">Team 0 Dmg</span>${teamTotals.get(0).dmg}</div>
-    <div class="result-item"><span class="rl">Team 1 Dmg</span>${teamTotals.get(1).dmg}</div>
-    <div class="result-item"><span class="rl">Team 0 Kills</span>${teamTotals.get(0).kills}</div>
-    <div class="result-item"><span class="rl">Team 1 Kills</span>${teamTotals.get(1).kills}</div>
+    <div class="result-banner result-banner-${outcome}">
+      <span class="result-banner-outcome">${escapeHtml(outcomeLabel)}</span>
+      <span class="result-banner-detail">${escapeHtml(winnerLine)} · ${escapeHtml(reason)}</span>
+    </div>
+    <div class="result-meta">
+      <span class="result-meta-arena">${escapeHtml(arenaName)}</span>
+      <span class="result-meta-sep">&middot;</span>
+      <span>${result.tickCount} ticks</span>
+    </div>
+    <div class="result-teams">
+      <span class="result-team-name result-team-0">${escapeHtml(team0Name)}</span>
+      <span class="result-team-name result-team-1">${escapeHtml(team1Name)}</span>
+    </div>
+    <div class="result-compare">
+      ${statRow("Health", t0.hp, t1.hp)}
+      ${statRow("Damage", t0.dmg, t1.dmg)}
+      ${statRow("Kills", t0.kills, t1.kills)}
+    </div>
   `;
 
   // Per-robot detail breakdown
   if (resultsRobotDetailEl) {
-    let robotHtml = '<div class="result-robot-header">Robot Detail</div>';
+    let robotHtml = '<div class="result-robot-header">Combatant breakdown</div>';
     for (const p of participants) {
       const stats = result.robotStats.get(p.robotId);
       if (!stats) continue;
       const finalRobot = lastFrame?.robots.find(r => r.id === p.robotId);
-      const hp = finalRobot ? Math.max(0, finalRobot.health) : 0;
-      const teamColor = p.teamId === 0 ? 'var(--accent-cyan)' : 'var(--accent-red)';
-      const label = p.playerId === "player" ? "You" : p.playerId;
-      robotHtml += `<div class="result-robot-row">
-        <span class="result-robot-name" style="color:${teamColor}">${escapeHtml(label)}</span>
-        <span class="result-robot-stat">HP:${hp}</span>
-        <span class="result-robot-stat">Dmg:${stats.damageDealt}</span>
-        <span class="result-robot-stat">K:${stats.kills}</span>
+      const hp = finalRobot ? Math.max(0, Math.round(finalRobot.health)) : 0;
+      const down = hp <= 0;
+      robotHtml += `<div class="result-robot-row team-${p.teamId}${down ? " is-down" : ""}">
+        <span class="result-robot-dot"></span>
+        <span class="result-robot-name">${escapeHtml(prettyParticipantName(p.playerId))}</span>
+        <span class="result-robot-stat">${down ? "DOWN" : "HP " + hp}</span>
+        <span class="result-robot-stat">DMG ${stats.damageDealt}</span>
+        <span class="result-robot-stat">K ${stats.kills}</span>
       </div>`;
     }
     resultsRobotDetailEl.innerHTML = robotHtml;
@@ -2946,6 +2988,14 @@ function showMatchResults(result, opponentName) {
 const TEAM_COLORS = ["#00d4ff", "#ff3355"];
 const TEAM_GLOW = ["rgba(0,212,255,0.25)", "rgba(255,51,85,0.25)"];
 const GRID_COLOR = "rgba(42,42,74,0.3)";
+
+/** Convert a #rrggbb hex color to an rgba() string with the given alpha. */
+function hexToRgba(hex, alpha = 1) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return `rgba(0,212,255,${alpha})`;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
 // Dynamic arena layout — populated from replay metadata after each match,
 // or from a selected preset when previewing pre-match.
 let currentArenaLayout = {
@@ -3676,53 +3726,51 @@ function drawFrame(frame, labels, prevFrame) {
   }
 
   ctx.restore();
+
+  // Keep the live broadcast overlay (HP bars + clock) in sync with the frame.
+  updateMatchHud(frame);
+  updateScoreboard(frame);
 }
 
 function drawIdle() {
-  // When idle, always preview the currently-selected arena preset so players
-  // see exactly what terrain they're about to fight on. For "random", fall back
-  // to an empty grid with a hint (the terrain doesn't exist until match time).
-  const id = getMatchArenaId();
-  if (id && id !== "random") {
-    const preset = getArenaPreset(id);
-    currentArenaLayout = {
-      covers: (preset.covers ?? []).map(c => ({ ...c })),
-      controlPoints: (preset.controlPoints ?? []).map(cp => ({ ...cp })),
-      healingZones: (preset.healingZones ?? []).map(hz => ({ ...hz })),
-      hazards: (preset.hazards ?? []).map(hz => ({ ...hz })),
-      depots: (preset.depots ?? []).map(d => ({ ...d })),
-    };
-  } else {
-    currentArenaLayout = { covers: [], controlPoints: [], healingZones: [], hazards: [], depots: [] };
-  }
+  // When idle, preview the currently-selected arena preset so players see
+  // exactly what terrain they are about to fight on.
+  const preset = getArenaPreset(getMatchArenaId());
+  currentArenaLayout = {
+    covers: (preset.covers ?? []).map(c => ({ ...c })),
+    controlPoints: (preset.controlPoints ?? []).map(cp => ({ ...cp })),
+    healingZones: (preset.healingZones ?? []).map(hz => ({ ...hz })),
+    hazards: (preset.hazards ?? []).map(hz => ({ ...hz })),
+    depots: (preset.depots ?? []).map(d => ({ ...d })),
+  };
 
   drawArenaBackground();
   const w = canvasEl.width;
   const h = canvasEl.height;
+  const accent = preset.accent || "#00d4ff";
 
-  // Arena name label (top)
-  if (id && id !== "random") {
-    const preset = getArenaPreset(id);
-    ctx.save();
-    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
-    ctx.font = `bold ${Math.max(12, w * 0.028)}px sans-serif`;
-    ctx.textAlign = "center";
-    ctx.fillText(preset.name.toUpperCase(), w / 2, 22);
-    ctx.fillStyle = "rgba(0, 212, 255, 0.5)";
-    ctx.font = `${Math.max(9, w * 0.016)}px sans-serif`;
-    ctx.fillText(preset.tagline ?? "", w / 2, 38);
-    ctx.restore();
-  }
+  // Arena name banner (top)
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.82)";
+  ctx.font = `bold ${Math.max(13, w * 0.030)}px sans-serif`;
+  ctx.fillText(preset.name.toUpperCase(), w / 2, 25);
+  ctx.fillStyle = hexToRgba(accent, 0.7);
+  ctx.font = `600 ${Math.max(9, w * 0.015)}px sans-serif`;
+  ctx.fillText((preset.tagline ?? "").toUpperCase(), w / 2, 42);
+  ctx.restore();
 
-  // Centered message with subtle styling
-  ctx.fillStyle = "rgba(0, 212, 255, 0.15)";
-  ctx.font = `bold ${Math.max(12, w * 0.025)}px sans-serif`;
+  // Centered call to action
+  ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("AWAITING COMBATANTS", w / 2, h / 2 - 10);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
-  ctx.font = `${Math.max(10, w * 0.018)}px sans-serif`;
-  ctx.fillText("Compile a bot and run a match", w / 2, h / 2 + 14);
+  ctx.fillStyle = hexToRgba(accent, 0.22);
+  ctx.font = `bold ${Math.max(13, w * 0.026)}px sans-serif`;
+  ctx.fillText("AWAITING COMBATANTS", w / 2, h / 2 - 8);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+  ctx.font = `${Math.max(10, w * 0.017)}px sans-serif`;
+  ctx.fillText("Compile a bot, then run a match", w / 2, h / 2 + 16);
+  ctx.restore();
   ctx.textBaseline = "alphabetic";
 }
 
@@ -3743,27 +3791,17 @@ function resizeCanvasToWrap() {
 }
 
 function enterMatchLive(participants) {
-  if (matchLiveMode) return;
-  matchLiveMode = true;
   matchLiveParticipants = participants;
+  if (matchLiveMode) {
+    resizeCanvasToWrap();
+    return;
+  }
+  matchLiveMode = true;
   document.body.classList.add("match-live");
 
-  // Resize canvas after CSS transition completes (0.4s)
+  // Resize canvas after the layout transition settles.
   setTimeout(resizeCanvasToWrap, 50);
   setTimeout(resizeCanvasToWrap, 450);
-
-  // Populate scoreboard
-  if (participants && scoreboardTeam0 && scoreboardTeam1) {
-    const t0 = participants.filter(p => p.teamId === 0).map(p => {
-      const label = p.playerId === "player" ? "You" : p.playerId;
-      return label.charAt(0).toUpperCase() + label.slice(1);
-    });
-    const t1 = participants.filter(p => p.teamId === 1).map(p => {
-      return p.playerId.charAt(0).toUpperCase() + p.playerId.slice(1);
-    });
-    scoreboardTeam0.textContent = t0.join(" & ") || "Team 0";
-    scoreboardTeam1.textContent = t1.join(" & ") || "Team 1";
-  }
 }
 
 function exitMatchLive() {
@@ -3771,6 +3809,8 @@ function exitMatchLive() {
   matchLiveMode = false;
   matchLiveParticipants = null;
   document.body.classList.remove("match-live");
+  hideMatchIntro();
+  clearMatchHud();
 
   // Reset canvas size for builder view
   if (currentView === "builder") {
@@ -3786,10 +3826,149 @@ function exitMatchLive() {
   }
 }
 
+/** Friendly display name for a participant's playerId. */
+function prettyParticipantName(playerId) {
+  if (!playerId) return "Bot";
+  if (playerId === "player") return "You";
+  return playerId.charAt(0).toUpperCase() + playerId.slice(1);
+}
+
+/**
+ * Build the live broadcast overlay — scoreboard team names, the combatant HUD,
+ * and the cinematic intro splash — for a freshly started match replay.
+ */
+function initMatchBroadcast(result) {
+  const meta = result?.replay?.metadata ?? {};
+  const participants = meta.participants ?? [];
+  const frame0 = replayData?.[0];
+
+  // Map robotId -> class, pulled from the first replay frame.
+  const classById = new Map();
+  for (const r of frame0?.robots ?? []) classById.set(r.id, r.robotClass);
+
+  const team0 = participants.filter(p => p.teamId === 0);
+  const team1 = participants.filter(p => p.teamId === 1);
+  const name0 = team0.map(p => prettyParticipantName(p.playerId)).join(" & ") || "Blue Team";
+  const name1 = team1.map(p => prettyParticipantName(p.playerId)).join(" & ") || "Red Team";
+
+  if (scoreboardTeam0) scoreboardTeam0.textContent = name0;
+  if (scoreboardTeam1) scoreboardTeam1.textContent = name1;
+  if (scoreboardArena) scoreboardArena.textContent = meta.arenaName ?? "Arena";
+
+  matchHudRows.clear();
+  buildMatchHudTeam(matchHudTeam0, team0, classById, 0);
+  buildMatchHudTeam(matchHudTeam1, team1, classById, 1);
+
+  showMatchIntro(name0, name1, meta.arenaName ?? "Arena");
+}
+
+/** Render one team's roster of combatant cards into the given HUD container. */
+function buildMatchHudTeam(container, members, classById, teamId) {
+  if (!container) return;
+  container.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "hud-team-header";
+  const tag = document.createElement("span");
+  tag.textContent = teamId === 0 ? "Blue Team" : "Red Team";
+  const bar = document.createElement("span");
+  bar.className = "hud-team-bar";
+  header.append(tag, bar);
+  container.appendChild(header);
+
+  for (const p of members) {
+    const cls = classById.get(p.robotId) || "brawler";
+    const row = document.createElement("div");
+    row.className = "hud-bot";
+    row.dataset.robot = p.robotId;
+    row.innerHTML = `
+      <div class="hud-bot-top">
+        <div class="hud-bot-icon ${escapeHtml(cls)}">${escapeHtml((cls || "?").charAt(0).toUpperCase())}</div>
+        <div class="hud-bot-id">
+          <span class="hud-bot-name">${escapeHtml(prettyParticipantName(p.playerId))}</span>
+          <span class="hud-bot-class">${escapeHtml(cls)}</span>
+        </div>
+      </div>
+      <div class="hud-bot-hp">
+        <div class="hud-bot-hp-track"><div class="hud-bot-hp-fill"></div></div>
+        <span class="hud-bot-hp-text">--</span>
+        <span class="hud-bot-down-tag">Down</span>
+      </div>`;
+    container.appendChild(row);
+    matchHudRows.set(p.robotId, {
+      row,
+      fill: row.querySelector(".hud-bot-hp-fill"),
+      text: row.querySelector(".hud-bot-hp-text"),
+    });
+  }
+}
+
+/** Update every combatant card's HP bar from the current replay frame. */
+function updateMatchHud(frame) {
+  if (!matchLiveMode || !frame || !frame.robots || matchHudRows.size === 0) return;
+  for (const r of frame.robots) {
+    const row = matchHudRows.get(r.id);
+    if (!row) continue;
+    const maxHp = CLASS_STATS[r.robotClass]?.health || 100;
+    const hp = Math.max(0, Math.round(r.health));
+    const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+    row.fill.style.width = pct + "%";
+    row.text.textContent = String(hp);
+    row.fill.classList.toggle("hp-low", pct > 0 && pct <= 25);
+    row.fill.classList.toggle("hp-mid", pct > 25 && pct <= 55);
+    row.row.classList.toggle("is-down", r.health <= 0 || r.alive === false);
+  }
+}
+
+function clearMatchHud() {
+  if (matchHudTeam0) matchHudTeam0.innerHTML = "";
+  if (matchHudTeam1) matchHudTeam1.innerHTML = "";
+  matchHudRows.clear();
+}
+
+/** Play the cinematic VS intro splash; auto-dismisses when the animation ends. */
+function showMatchIntro(name0, name1, arenaName) {
+  if (!matchIntroEl) return;
+  if (matchIntroTimer) { clearTimeout(matchIntroTimer); matchIntroTimer = null; }
+  if (matchIntroTeam0) matchIntroTeam0.textContent = name0;
+  if (matchIntroTeam1) matchIntroTeam1.textContent = name1;
+  if (matchIntroArena) matchIntroArena.textContent = arenaName;
+  matchIntroEl.hidden = false;
+  // Restart the CSS animation by forcing a reflow between class toggles.
+  matchIntroEl.classList.remove("playing");
+  void matchIntroEl.offsetWidth;
+  matchIntroEl.classList.add("playing");
+  matchIntroTimer = setTimeout(() => {
+    matchIntroEl.hidden = true;
+    matchIntroEl.classList.remove("playing");
+    matchIntroTimer = null;
+  }, 1850);
+}
+
+function hideMatchIntro() {
+  if (matchIntroTimer) { clearTimeout(matchIntroTimer); matchIntroTimer = null; }
+  if (matchIntroEl) {
+    matchIntroEl.hidden = true;
+    matchIntroEl.classList.remove("playing");
+  }
+}
+
 function updateScoreboard(frame) {
   if (!matchLiveMode || !frame || !scoreboardTick) return;
   const totalTicks = replayData?.[replayData.length - 1]?.tick ?? 0;
   scoreboardTick.textContent = `Tick ${frame.tick} / ${totalTicks}`;
+}
+
+/** Reveal the match results scorecard (called when the replay finishes). */
+function revealMatchResults() {
+  if (matchResultsEl) matchResultsEl.classList.add("visible");
+}
+
+/** Show the results scorecard only while the final replay frame is on screen. */
+function syncResultsToFrame() {
+  if (!matchResultsEl) return;
+  const atEnd = !!replayData && replayFrameIndex >= replayData.length - 1;
+  matchResultsEl.classList.toggle("visible", atEnd);
 }
 
 // ============================================================================
@@ -3824,9 +4003,15 @@ function startReplay(result, opponentName) {
   replayPlaying = true;
   replaySpeed = parseFloat(replaySpeedSelect.value) || 0.24;
 
-  // Enter match-live mode — arena takes over the screen
+  // Enter match-live mode — the arena takes over the screen — and build the
+  // broadcast overlay (scoreboard, combatant HUD, cinematic intro).
   const participants = result.replay.metadata?.participants ?? [];
   enterMatchLive(participants);
+  initMatchBroadcast(result);
+
+  // Keep the results scorecard hidden until the match finishes — the live
+  // replay is the show, the result is the payoff.
+  if (matchResultsEl) matchResultsEl.classList.remove("visible");
 
   // Log bookmarks to console
   if (lastReplayBookmarks) {
@@ -3868,6 +4053,7 @@ function replayTick(timestamp) {
     if (replayFrameIndex >= replayData.length) {
       replayPlaying = false;
       btnReplayToggle.textContent = "\u25B6";
+      revealMatchResults();
       return;
     }
     const frame = replayData[replayFrameIndex];
@@ -3875,13 +4061,13 @@ function replayTick(timestamp) {
     drawFrame(frame, replayLabels);
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
-    updateScoreboard(frame);
 
     replayFrameIndex++;
     if (replayFrameIndex >= replayData.length) {
       replayPlaying = false;
       btnReplayToggle.textContent = "\u25B6";
       arenaStatus.textContent = `Done (${replayData[replayData.length - 1].tick} ticks)`;
+      revealMatchResults();
       return;
     }
   }
@@ -3897,10 +4083,11 @@ function toggleReplayPlayPause() {
     btnReplayToggle.textContent = "\u25B6";
     arenaStatus.textContent = "Paused";
   } else {
-    // If at end, restart
+    // If at end, restart from the top
     if (replayFrameIndex >= replayData.length) {
       replayFrameIndex = 0;
     }
+    if (matchResultsEl) matchResultsEl.classList.remove("visible");
     replayPlaying = true;
     btnReplayToggle.textContent = "\u275A\u275A";
     arenaStatus.textContent = "Replaying...";
@@ -3918,6 +4105,7 @@ function scrubReplay() {
     drawFrame(frame, replayLabels);
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
+    syncResultsToFrame();
   }
 }
 
@@ -3934,6 +4122,7 @@ function stepReplayForward() {
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
+    syncResultsToFrame();
   }
 }
 
@@ -3953,6 +4142,7 @@ function jumpToBookmark(bookmarkName) {
     replayScrubber.value = idx;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick} (${bookmarkName})`;
+    syncResultsToFrame();
   }
 }
 
@@ -3969,6 +4159,7 @@ function stepReplayBack() {
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
+    syncResultsToFrame();
   }
 }
 

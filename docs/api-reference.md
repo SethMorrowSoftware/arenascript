@@ -223,9 +223,8 @@ Each replay frame contains the full simulation state for that tick:
 }
 ```
 
-The replay's metadata also includes the procedural arena layout (covers,
-control points, heal zones, hazards, and **depots**) captured once at
-match start:
+The replay's metadata also includes the arena layout (covers, control
+points, heal zones, hazards, and **depots**) captured once at match start:
 
 ```javascript
 replay.metadata.arenaLayout = {
