@@ -10,15 +10,12 @@ import { resolveMovement, applyMovement, resolveCollisions } from "./movement.js
 import { resolveCombat, updateProjectiles, updateCooldowns, applyDamage } from "./combat.js";
 import { VisibilityTracker, checkCooldownReady } from "./events.js";
 import { ReplayWriter } from "./replay.js";
-import { getArenaPreset, isKnownArenaId, DEFAULT_ARENA_ID } from "./arena-presets.js";
+import { getArenaPreset } from "./arena-presets.js";
 import {
   CAPTURE_RATE, CAPTURE_WIN_THRESHOLD, CAPTURE_RADIUS,
   HEAL_ZONE_RADIUS, HEAL_ZONE_TICK_RATE,
   HAZARD_ZONE_RADIUS, HAZARD_DAMAGE_PER_TICK,
-  MIN_COVER_COUNT, MAX_COVER_COUNT,
-  MIN_HEAL_ZONES, MAX_HEAL_ZONES,
-  MIN_HAZARD_ZONES, MAX_HAZARD_ZONES,
-  SPAWN_CLEAR_RADIUS, CLASS_STATS, DEFAULT_VISION_RANGE,
+  CLASS_STATS, DEFAULT_VISION_RANGE,
   MINE_DAMAGE, MINE_TRIGGER_RADIUS, MINE_MAX_PER_ROBOT, MINE_COOLDOWN, MINE_ENERGY_COST,
   PICKUP_SPAWN_INTERVAL, PICKUP_MAX_ACTIVE, PICKUP_COLLECT_RADIUS,
   PICKUP_EFFECT_DURATION, PICKUP_SPEED_MULTIPLIER, PICKUP_DAMAGE_MULTIPLIER,
@@ -27,11 +24,10 @@ import {
   SIGNAL_RANGE, SIGNAL_COOLDOWN,
   OVERWATCH_DURATION, OVERWATCH_COOLDOWN, OVERWATCH_ENERGY_COST,
   TAUNT_DURATION, TAUNT_COOLDOWN, TAUNT_RANGE, TAUNT_ENERGY_COST,
-  DESTRUCTIBLE_COVER_RATIO,
   CLOAK_DURATION, CLOAK_COOLDOWN, CLOAK_ENERGY_COST,
   SELF_DESTRUCT_COUNTDOWN, SELF_DESTRUCT_RADIUS, SELF_DESTRUCT_DAMAGE,
   SELF_DESTRUCT_HEALTH_THRESHOLD,
-  DEPOT_COUNT, DEPOT_RADIUS, DEPOT_AMMO_PER_TICK, DEPOT_HEAT_VENT_PER_TICK,
+  DEPOT_AMMO_PER_TICK, DEPOT_HEAT_VENT_PER_TICK,
   HEAT_MAX,
 } from "../shared/config.js";
 import { distance, vec2 } from "../shared/vec2.js";
@@ -121,12 +117,8 @@ export function runMatch(setup) {
   // Create replay writer and capture arena identity + layout for rendering
   const matchId = `match_${config.seed}_${++nextMatchSequence}`;
   const replayWriter = new ReplayWriter(matchId, config.seed, matchParticipants);
-  if (config.arenaId === "random") {
-    replayWriter.setArenaIdentity("random", "Random Procedural");
-  } else {
-    const preset = getArenaPreset(config.arenaId);
-    replayWriter.setArenaIdentity(preset.id, preset.name);
-  }
+  const preset = getArenaPreset(config.arenaId);
+  replayWriter.setArenaIdentity(preset.id, preset.name);
   replayWriter.captureArenaLayout(world);
 
   // Execute spawn handlers
@@ -407,17 +399,10 @@ export function runMatch(setup) {
 }
 
 function initializeArenaLayout(world) {
-  const arenaId = world.config.arenaId;
-
-  // "random" explicitly opts back into the legacy procedural generator. Any
-  // other value (including undefined) uses a hand-crafted preset; unknown ids
-  // fall back to the default preset via getArenaPreset().
-  if (arenaId === "random") {
-    buildProceduralArena(world);
-  } else {
-    const preset = getArenaPreset(arenaId);
-    buildPresetArena(world, preset);
-  }
+  // Every match runs on a hand-crafted, deterministic arena preset. Unknown or
+  // missing ids fall back to the default preset via getArenaPreset(), so the
+  // layout is always reproducible for a given (preset + seed) pair.
+  buildPresetArena(world, getArenaPreset(world.config.arenaId));
 }
 
 /**
@@ -448,148 +433,6 @@ function buildPresetArena(world, preset) {
   }
   for (const d of preset.depots ?? []) {
     world.addDepot(vec2(d.x, d.y), d.radius);
-  }
-}
-
-/**
- * Legacy procedural arena generator. Still exposed via `arenaId: "random"`
- * for players who want the surprise factor of unseen layouts.
- */
-function buildProceduralArena(world) {
-  const { arenaWidth: w, arenaHeight: h } = world.config;
-  const rng = world.rng;
-
-  // Spawn zones to keep clear
-  const spawnZones = [
-    vec2(w * 0.10, h * 0.50), // team 0
-    vec2(w * 0.90, h * 0.50), // team 1
-  ];
-
-  function isTooCloseToSpawn(pos) {
-    for (const sp of spawnZones) {
-      if (distance(pos, sp) < SPAWN_CLEAR_RADIUS) return true;
-    }
-    return false;
-  }
-
-  function isTooCloseToExisting(pos, minDist, collection) {
-    for (const item of collection.values()) {
-      if (distance(pos, item.position) < minDist) return true;
-    }
-    return false;
-  }
-
-  // --- Control Points (2-3, spread across the map) ---
-  const cpCount = rng.nextInt(2, 3);
-  const cpSlots = [];
-  // Divide map into horizontal slices for control points to ensure spread
-  for (let i = 0; i < cpCount; i++) {
-    const sliceWidth = w / cpCount;
-    const minX = sliceWidth * i + sliceWidth * 0.2;
-    const maxX = sliceWidth * (i + 1) - sliceWidth * 0.2;
-    const x = rng.nextFloat(Math.max(12, minX), Math.min(w - 12, maxX));
-    const y = rng.nextFloat(h * 0.25, h * 0.75);
-    const pos = vec2(x, y);
-    if (!isTooCloseToSpawn(pos)) {
-      world.addControlPoint(pos, CAPTURE_RADIUS);
-      cpSlots.push(pos);
-    }
-  }
-  // Always ensure at least one center-ish control point
-  if (cpSlots.length === 0) {
-    const pos = vec2(w * 0.5, h * 0.5);
-    world.addControlPoint(pos, CAPTURE_RADIUS);
-    cpSlots.push(pos);
-  }
-
-  // --- Cover Objects (procedurally placed, varied sizes) ---
-  const coverCount = rng.nextInt(MIN_COVER_COUNT, MAX_COVER_COUNT);
-  for (let i = 0; i < coverCount; i++) {
-    // Try up to 10 times to place without overlapping spawn zones
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const x = rng.nextFloat(8, w - 8);
-      const y = rng.nextFloat(8, h - 8);
-      const pos = vec2(x, y);
-      if (isTooCloseToSpawn(pos)) continue;
-      if (isTooCloseToExisting(pos, 8, world.covers)) continue;
-
-      // Varied shapes: narrow walls, wide barricades, pillars
-      const shapeRoll = rng.nextFloat(0, 1);
-      let cw, ch;
-      if (shapeRoll < 0.3) {
-        // Tall wall
-        cw = rng.nextFloat(2, 4);
-        ch = rng.nextFloat(8, 16);
-      } else if (shapeRoll < 0.6) {
-        // Wide barricade
-        cw = rng.nextFloat(8, 14);
-        ch = rng.nextFloat(2, 4);
-      } else if (shapeRoll < 0.85) {
-        // Medium block
-        cw = rng.nextFloat(4, 8);
-        ch = rng.nextFloat(4, 8);
-      } else {
-        // Pillar
-        cw = rng.nextFloat(2, 4);
-        ch = rng.nextFloat(2, 4);
-      }
-
-      const isDestructible = rng.nextFloat(0, 1) < DESTRUCTIBLE_COVER_RATIO;
-      world.addCover(pos, cw, ch, isDestructible);
-      break;
-    }
-  }
-
-  // --- Healing Zones (scattered, never near spawns) ---
-  const healCount = rng.nextInt(MIN_HEAL_ZONES, MAX_HEAL_ZONES);
-  for (let i = 0; i < healCount; i++) {
-    for (let attempt = 0; attempt < 15; attempt++) {
-      const x = rng.nextFloat(12, w - 12);
-      const y = rng.nextFloat(12, h - 12);
-      const pos = vec2(x, y);
-      if (isTooCloseToSpawn(pos)) continue;
-      if (isTooCloseToExisting(pos, 12, world.healingZones)) continue;
-
-      const radius = rng.nextFloat(HEAL_ZONE_RADIUS * 0.7, HEAL_ZONE_RADIUS * 1.3);
-      world.addHealingZone(pos, radius, HEAL_ZONE_TICK_RATE);
-      break;
-    }
-  }
-
-  // --- Hazard Zones (dangerous areas to avoid or navigate around) ---
-  const hazardCount = rng.nextInt(MIN_HAZARD_ZONES, MAX_HAZARD_ZONES);
-  for (let i = 0; i < hazardCount; i++) {
-    for (let attempt = 0; attempt < 15; attempt++) {
-      const x = rng.nextFloat(15, w - 15);
-      const y = rng.nextFloat(15, h - 15);
-      const pos = vec2(x, y);
-      if (isTooCloseToSpawn(pos)) continue;
-      if (isTooCloseToExisting(pos, 10, world.hazards)) continue;
-      // Don't overlap healing zones
-      if (isTooCloseToExisting(pos, 8, world.healingZones)) continue;
-
-      const radius = rng.nextFloat(HAZARD_ZONE_RADIUS * 0.8, HAZARD_ZONE_RADIUS * 1.4);
-      world.addHazard(pos, radius, HAZARD_DAMAGE_PER_TICK);
-      break;
-    }
-  }
-
-  // --- Resupply Depots (symmetric, contestable map objectives) ---
-  // Place DEPOT_COUNT depots in the neutral middle region, symmetrically
-  // around the arena center so neither team starts with a free claim.
-  for (let i = 0; i < DEPOT_COUNT; i++) {
-    for (let attempt = 0; attempt < 20; attempt++) {
-      // Split the horizontal midline into DEPOT_COUNT slots.
-      const slot = (i + 0.5) / DEPOT_COUNT;
-      const x = w * (0.35 + slot * 0.30); // between 35% and 65% horizontally
-      const y = rng.nextFloat(h * 0.30, h * 0.70);
-      const pos = vec2(x, y);
-      if (isTooCloseToSpawn(pos)) continue;
-      if (isTooCloseToExisting(pos, 10, world.depots)) continue;
-      if (isTooCloseToExisting(pos, 6, world.hazards)) continue;
-      world.addDepot(pos, DEPOT_RADIUS);
-      break;
-    }
   }
 }
 

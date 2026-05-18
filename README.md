@@ -34,6 +34,11 @@ A deterministic robot arena combat engine with a custom domain-specific language
 - **4 robot classes** — Brawler, Ranger, Tank, Support with distinct stats & heat profiles
 
 ### UI
+- **Match broadcast mode** — when a match runs the arena takes over the screen
+  with a cinematic intro, a broadcast scoreboard, and a live combatant HUD
+  (per-team rosters with real-time HP bars)
+- **Match scorecard** — winner banner + team comparison, revealed when the
+  replay finishes so the live match stays spoiler-free
 - **Command palette** (Ctrl+K) — jump between bots, views, docs, and actions
 - **Keyboard shortcut help** (Shift+?) — full binding reference in-app
 - **Language reference drawer** (Ctrl+/) — searchable, sectioned quick-lookup

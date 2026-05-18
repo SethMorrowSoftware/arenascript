@@ -207,7 +207,10 @@
           <label for="arena-select">Arena</label>
           <select id="arena-select" class="opponent-select"></select>
           <div id="arena-info" class="arena-info">
-            <div class="arena-info-tagline" id="arena-info-tagline"></div>
+            <div class="arena-info-head">
+              <div class="arena-info-tagline" id="arena-info-tagline"></div>
+              <span class="arena-info-difficulty" id="arena-info-difficulty"></span>
+            </div>
             <div class="arena-info-desc" id="arena-info-desc"></div>
           </div>
         </div>
@@ -350,6 +353,47 @@
             </div>
             <div class="arena-canvas-wrap">
               <canvas id="arena-canvas" width="400" height="400"></canvas>
+
+              <!-- Live broadcast scoreboard (match-live only) -->
+              <div id="match-scoreboard" class="match-scoreboard" aria-hidden="true">
+                <div class="sb-team sb-team-0">
+                  <span class="sb-dot"></span>
+                  <span class="sb-team-name" id="scoreboard-team0">Team 0</span>
+                </div>
+                <div class="sb-core">
+                  <span class="sb-vs">VS</span>
+                  <div class="sb-readout">
+                    <span class="sb-arena" id="scoreboard-arena">Arena</span>
+                    <span class="sb-tick" id="scoreboard-tick">Tick 0</span>
+                  </div>
+                </div>
+                <div class="sb-team sb-team-1">
+                  <span class="sb-team-name" id="scoreboard-team1">Team 1</span>
+                  <span class="sb-dot"></span>
+                </div>
+              </div>
+
+              <!-- Live combatant HUD: team rosters with HP bars (match-live only) -->
+              <div id="match-hud" class="match-hud" aria-hidden="true">
+                <div class="match-hud-team match-hud-team-0" id="match-hud-team0"></div>
+                <div class="match-hud-team match-hud-team-1" id="match-hud-team1"></div>
+              </div>
+
+              <!-- Cinematic match intro splash (match-live only) -->
+              <div id="match-intro" class="match-intro" hidden aria-hidden="true">
+                <div class="match-intro-row">
+                  <div class="match-intro-side match-intro-side-0">
+                    <span class="match-intro-tag">Blue Team</span>
+                    <span class="match-intro-name" id="match-intro-team0"></span>
+                  </div>
+                  <div class="match-intro-vs">VS</div>
+                  <div class="match-intro-side match-intro-side-1">
+                    <span class="match-intro-tag">Red Team</span>
+                    <span class="match-intro-name" id="match-intro-team1"></span>
+                  </div>
+                </div>
+                <div class="match-intro-arena" id="match-intro-arena"></div>
+              </div>
             </div>
 
             <!-- Replay Controls -->
@@ -374,10 +418,10 @@
               </label>
             </div>
 
-            <!-- Match Results -->
+            <!-- Match Results scorecard (revealed when the replay finishes) -->
             <div id="match-results" class="match-results">
-              <div class="match-results-title">Match Results</div>
-              <div id="results-content" class="result-grid"></div>
+              <div class="match-results-title">Match Report</div>
+              <div id="results-content"></div>
               <div id="results-robot-detail" class="result-robot-detail"></div>
             </div>
           </div>
@@ -492,14 +536,6 @@
 
   <!-- Shortcut hint: tap "?" for help, Ctrl+K for palette -->
   <button id="btn-show-help" class="floating-help-btn" title="Keyboard shortcuts (Shift+?)" aria-label="Show help">?</button>
-
-  <!-- Match Live: Scoreboard overlay -->
-  <div id="match-scoreboard" class="match-scoreboard">
-    <span class="scoreboard-team scoreboard-team-0" id="scoreboard-team0">Team 0</span>
-    <span class="scoreboard-vs">VS</span>
-    <span class="scoreboard-team scoreboard-team-1" id="scoreboard-team1">Team 1</span>
-    <span class="scoreboard-tick" id="scoreboard-tick"></span>
-  </div>
 
   <!-- Toast / notification slot -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>

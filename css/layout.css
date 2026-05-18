@@ -343,26 +343,51 @@
 /* ---- Arena Info Panel (below arena selector) ---- */
 .arena-info {
   margin-top: 8px;
-  padding: 8px 10px;
-  background: rgba(0, 212, 255, 0.04);
-  border: 1px solid rgba(0, 212, 255, 0.15);
+  padding: 9px 11px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--arena-accent, var(--accent-cyan));
   border-radius: var(--radius);
   font-family: var(--font-sans);
+}
+
+.arena-info-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
 }
 
 .arena-info-tagline {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--arena-accent, var(--accent-cyan));
+}
+
+.arena-info-difficulty {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--accent-cyan);
-  margin-bottom: 4px;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.arena-info-difficulty:empty {
+  display: none;
 }
 
 .arena-info-desc {
   font-size: 11px;
   color: var(--text-secondary);
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .sidebar-user-bots {

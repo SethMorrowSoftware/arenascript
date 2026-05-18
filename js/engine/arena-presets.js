@@ -2,28 +2,38 @@
 // Arena Presets — 5 hand-crafted competitive arenas
 // ============================================================================
 //
-// Each preset is a fixed, symmetric layout designed with a unique tactical
-// identity so that bot authors can tune strategies per arena:
+// Every match runs on one of these five fixed layouts. There is no procedural
+// generation: each arena is authored by hand so bot authors can learn a map,
+// tune strategies against it, and trust that a given (preset + seed) pair
+// always reproduces the exact same fight.
 //
-//   crucible    — Balanced, symmetric, the default for learning.
-//   inferno     — Hazard-heavy; rewards aggressive positioning and vent timing.
-//   fortress    — Dense cover; rewards stealth, LoS management, and flanks.
-//   gauntlet    — Linear corridor; rewards breakthroughs and fire discipline.
-//   plains      — Wide open; rewards long-range combat and map control.
+// Each preset has a distinct tactical identity:
 //
-// All arenas are authored for a 140×140 playfield with team spawns at
-// (14, 70) and (126, 70) (the defaults used by the tick scheduler). Every
-// layout is mirror-symmetric along the vertical axis for strict fairness.
-// Any feature is allowed as long as it keeps a ≥15 unit distance from both
-// spawns (SPAWN_CLEAR_RADIUS).
+//   crucible  — Balanced symmetric proving ground. Three control points in a
+//               line, mirrored cover. The default and the place to learn.
+//   inferno   — Acid arena. A vertical spine of objectives with a ring of
+//               hazards guarding the high-value center. Rewards mobility.
+//   fortress  — A walled compound. Two defensible side rooms joined by a
+//               central chamber. Rewards cover discipline, cloak and flanks.
+//   gauntlet  — Three lanes split by long barricades. Funnels combat through
+//               a hazard-laced central corridor. Rewards breakthroughs.
+//   plains    — Wide open. Four quadrant control points around a single
+//               healing oasis. Rewards long range and map control.
 //
-// Cover shape tags:
-//   "wall"     — tall thin vertical barrier, great for side cover
-//   "barricade"— wide thin horizontal barrier, blocks line-of-sight front/back
-//   "block"    — boxy medium cover, good omnidirectional
-//   "pillar"   — small point cover
+// Authoring rules (keep every layout fair and legal):
+//   * 140×140 playfield. Team spawns sit at (14, 70) and (126, 70); squad
+//     members fan out along the spawn lane (y 58..82).
+//   * Every layout is mirror-symmetric across the vertical centerline
+//     (x = 70) AND the horizontal centerline (y = 70), so neither team — and
+//     no lane — has an inherent edge.
+//   * No feature's anchor point sits within SPAWN_CLEAR_RADIUS (15 units) of
+//     either spawn point.
 //
-// Features missing from a given preset should simply be omitted or empty.
+// Cover shape vocabulary (w × h, position is the CENTER of the rectangle):
+//   "wall"      — thin + tall, blocks a flank
+//   "barricade" — thin + wide, blocks a sightline front/back
+//   "block"     — boxy, omnidirectional cover
+//   "pillar"    — small point cover
 // ============================================================================
 
 import {
@@ -56,192 +66,216 @@ function depot(x, y, radius = DEPOT_RADIUS) { return { x, y, radius }; }
 // ============================================================================
 // Arena 1: THE CRUCIBLE — Balanced symmetric classic
 // ============================================================================
-// Three horizontal control points, symmetric lane covers, two safe heal zones
-// in opposite corners, two contested depots on diagonal. No hazards. The
-// default pick and the training ground for new bot authors.
+// Three control points on a horizontal line. The two flank points sit inside
+// mirrored cover chambers; the center point is framed by barricades and a pair
+// of destructible blocks. Clean sightlines, no hazards — pure positioning.
 const CRUCIBLE = {
   id: "crucible",
   name: "The Crucible",
-  tagline: "Balanced · 3 CPs · No hazards",
+  tagline: "Balanced · 3 control points · No hazards",
   description:
-    "A fair, symmetric arena with three horizontal control points, mirrored cover "
-    + "lanes, and two diagonal depots. The default competitive map — no tricks, "
-    + "just positioning, resource management, and combat skill.",
-  difficulty: "Standard",
+    "A fair, symmetric arena with three control points in a line. The flank "
+    + "points sit in mirrored cover chambers and the center is framed by "
+    + "destructible blocks. No tricks — just positioning, resource management "
+    + "and clean combat. The default competitive map and the place to learn.",
+  difficulty: "Beginner",
+  accent: "#00d4ff",
   recommendedModes: ["duel_1v1", "squad_2v2"],
   covers: [
-    // Side wall pillars near each flank control point
-    cover(35, 55, 3, 10),
-    cover(35, 85, 3, 10),
-    cover(105, 55, 3, 10),
-    cover(105, 85, 3, 10),
-    // Horizontal barricades north/south of center — create flanking choices
-    cover(70, 40, 14, 3),
-    cover(70, 100, 14, 3),
-    // Destructible central blocks flanking the center CP
-    cover(55, 70, 4, 4, true),
-    cover(85, 70, 4, 4, true),
+    // Flank control-point chambers — barricades frame the side points
+    cover(37, 57, 16, 3),
+    cover(37, 83, 16, 3),
+    cover(103, 57, 16, 3),
+    cover(103, 83, 16, 3),
+    // Center control point — barricades north/south, destructible side blocks
+    cover(70, 53, 16, 3),
+    cover(70, 87, 16, 3),
+    cover(59, 70, 3, 12, true),
+    cover(81, 70, 3, 12, true),
+    // Mid-field corner pillars — partial sightline breaks on the diagonals
+    cover(52, 33, 5, 5),
+    cover(88, 33, 5, 5),
+    cover(52, 107, 5, 5),
+    cover(88, 107, 5, 5),
   ],
   controlPoints: [cp(35, 70), cp(70, 70), cp(105, 70)],
-  healingZones: [heal(45, 25), heal(95, 115)],
+  healingZones: [heal(70, 24), heal(70, 116)],
   hazards: [],
-  depots: [depot(55, 115), depot(85, 25)],
+  depots: [depot(47, 70), depot(93, 70)],
 };
 
 // ============================================================================
-// Arena 2: INFERNO — Hazard-heavy aggressive
+// Arena 2: INFERNO — Hazard ring around a contested center
 // ============================================================================
-// A hot zone of acid pools forces mobility. Sparse cover, central high-value
-// control point, compensating heal zones. Rewards bots that manage heat well
-// and rotate around the hazards.
+// The three control points run on a vertical spine. A diamond of acid pools
+// rings the high-value center point — reachable, but never safely. Outer
+// pools punish lazy rotations. Sparse cover keeps everyone exposed.
 const INFERNO = {
   id: "inferno",
   name: "Inferno",
-  tagline: "Hazardous · 3 CPs · Mobility focused",
+  tagline: "Hazardous · 3 control points · Mobility focused",
   description:
-    "Acid pools carve up the battlefield. Sparse cover and a high-value center "
-    + "control point punish static play while heal zones near each spawn reward "
-    + "bots that can rotate between safety and aggression.",
+    "Acid pools ring the high-value center control point — you can hold it, "
+    + "but never safely. The objectives run on a vertical spine and outer "
+    + "pools punish careless rotations. Sparse cover rewards bots that manage "
+    + "heat well and keep moving.",
   difficulty: "Advanced",
+  accent: "#ff8800",
   recommendedModes: ["duel_1v1", "squad_2v2"],
   covers: [
-    cover(70, 40, 6, 3),
-    cover(70, 100, 6, 3),
-    cover(45, 70, 3, 3, true),
-    cover(95, 70, 3, 3, true),
-    cover(33, 45, 4, 4),
-    cover(107, 95, 4, 4),
-    cover(33, 95, 4, 4),
-    cover(107, 45, 4, 4),
+    // Walls flanking the center objective
+    cover(52, 70, 3, 14),
+    cover(88, 70, 3, 14),
+    // Barricades behind the north / south control points
+    cover(70, 20, 14, 3),
+    cover(70, 120, 14, 3),
+    // Corner blocks — the only cover out on the flanks
+    cover(32, 50, 5, 5),
+    cover(108, 50, 5, 5),
+    cover(32, 90, 5, 5),
+    cover(108, 90, 5, 5),
   ],
-  controlPoints: [cp(70, 70), cp(70, 35), cp(70, 105)],
-  healingZones: [heal(35, 20, 4.5), heal(105, 120, 4.5), heal(35, 120, 3.5), heal(105, 20, 3.5)],
+  controlPoints: [cp(70, 70), cp(70, 32), cp(70, 108)],
+  healingZones: [heal(34, 70, 4.5), heal(106, 70, 4.5)],
   hazards: [
-    hazard(55, 55, 4),
-    hazard(85, 85, 4),
-    hazard(55, 85, 4),
-    hazard(85, 55, 4),
-    hazard(70, 70, 3), // small center hazard overlapping center CP (high risk/reward)
+    // Diamond of acid around the center control point
+    hazard(70, 53, 4),
+    hazard(70, 87, 4),
+    hazard(53, 70, 4),
+    hazard(87, 70, 4),
+    // Outer pools punishing wide rotations
+    hazard(44, 44, 3.5),
+    hazard(96, 44, 3.5),
+    hazard(44, 96, 3.5),
+    hazard(96, 96, 3.5),
   ],
-  depots: [depot(70, 25), depot(70, 115)],
+  depots: [depot(70, 44), depot(70, 96)],
 };
 
 // ============================================================================
-// Arena 3: FORTRESS — Dense cover corridors
+// Arena 3: FORTRESS — Walled compound, two side rooms + central chamber
 // ============================================================================
-// A labyrinth of cover walls. Narrow lanes, many flanking options, stealth
-// plays shine. Two defensible control points on the flanks, two safe heal
-// zones, two central depots. No hazards — pure positioning warfare.
+// Two defensible rooms hold the flank control points, each with a single
+// doorway toward the middle. A central chamber with a destructible corridor
+// connects them. Dense cover, no hazards — stealth, overwatch and flanking.
 const FORTRESS = {
   id: "fortress",
   name: "Fortress",
-  tagline: "Dense cover · 2 CPs · Stealth friendly",
+  tagline: "Dense cover · 2 control points · Stealth friendly",
   description:
-    "A labyrinth of walls and barricades creates overlapping sightlines and "
-    + "flanking routes. Defensible flank control points, no hazards, and dense "
-    + "cover reward patient positioning, cloak, and overwatch play.",
+    "A walled compound: two defensible rooms hold the flank control points, "
+    + "each entered through a single doorway, joined by a central chamber and "
+    + "a destructible corridor. Overlapping sightlines and tight lanes reward "
+    + "patient positioning, cloak and overwatch play.",
   difficulty: "Tactical",
+  accent: "#aa55ff",
   recommendedModes: ["duel_1v1", "squad_2v2"],
   covers: [
-    // Outer perimeter walls
-    cover(40, 40, 3, 12),
-    cover(40, 100, 3, 12),
-    cover(100, 40, 3, 12),
-    cover(100, 100, 3, 12),
-    // Middle barricades forming a grid of lanes
-    cover(55, 55, 10, 2),
-    cover(55, 85, 10, 2),
-    cover(85, 55, 10, 2),
-    cover(85, 85, 10, 2),
-    // Central vertical walls protecting mid corridor
-    cover(70, 30, 3, 8),
-    cover(70, 110, 3, 8),
-    // Destructible inner blocks near the flanks
-    cover(30, 50, 4, 4, true),
-    cover(30, 90, 4, 4, true),
-    cover(110, 50, 4, 4, true),
-    cover(110, 90, 4, 4, true),
-    // Small pillars at mid — partial sightline breaks
-    cover(62, 70, 3, 3),
-    cover(78, 70, 3, 3),
+    // Left room — walls enclose the flank control point, doorway faces center
+    cover(44, 52, 26, 3),
+    cover(44, 88, 26, 3),
+    cover(57, 61, 3, 8),
+    cover(57, 79, 3, 8),
+    // Right room — mirror image
+    cover(96, 52, 26, 3),
+    cover(96, 88, 26, 3),
+    cover(83, 61, 3, 8),
+    cover(83, 79, 3, 8),
+    // Central chamber — barricades north/south, destructible corridor pillars
+    cover(70, 42, 18, 3),
+    cover(70, 98, 18, 3),
+    cover(70, 62, 3, 7, true),
+    cover(70, 78, 3, 7, true),
+    // Outer flank pillars covering the spawn approaches
+    cover(30, 36, 5, 5),
+    cover(110, 36, 5, 5),
+    cover(30, 104, 5, 5),
+    cover(110, 104, 5, 5),
   ],
   controlPoints: [cp(40, 70), cp(100, 70)],
-  healingZones: [heal(30, 30), heal(110, 110)],
+  healingZones: [heal(34, 70), heal(106, 70)],
   hazards: [],
-  depots: [depot(70, 50), depot(70, 90)],
+  depots: [depot(70, 26), depot(70, 114)],
 };
 
 // ============================================================================
-// Arena 4: THE GAUNTLET — Linear corridor chokepoints
+// Arena 4: THE GAUNTLET — Three lanes, central hazard corridor
 // ============================================================================
-// Horizontal lanes separated by long barricades push bots into the central
-// corridor. Hazards at the choke points punish reckless advances. Rewards
-// breakthroughs, grenades, and coordinated pushes.
+// Long barricades split the field into a top lane, a bottom lane and the
+// central objective lane. The lanes only connect through the central corridor
+// or the map edges. Choke hazards guard the center control point.
 const GAUNTLET = {
   id: "gauntlet",
   name: "The Gauntlet",
-  tagline: "Linear · 3 CPs · Chokepoint hazards",
+  tagline: "Linear · 3 control points · Chokepoint hazards",
   description:
-    "Long barricades funnel combat into the central corridor. Choke-point "
-    + "hazards and a hard-earned middle control point reward breakthrough tactics, "
-    + "area denial, and well-timed grenade play.",
+    "Long barricades split the field into a top lane, a bottom lane and the "
+    + "central objective lane — connected only through the middle corridor or "
+    + "the map edges. Choke hazards guard the center point, rewarding "
+    + "breakthrough tactics, area denial and well-timed grenades.",
   difficulty: "Tactical",
+  accent: "#ffdd00",
   recommendedModes: ["duel_1v1", "squad_2v2"],
   covers: [
-    // Long horizontal barricades separating top/middle/bottom lanes
-    cover(50, 45, 16, 3),
-    cover(90, 45, 16, 3),
-    cover(50, 95, 16, 3),
-    cover(90, 95, 16, 3),
-    // Central corridor walls (north/south of center)
-    cover(70, 20, 4, 6),
-    cover(70, 120, 4, 6),
-    // Small cover flanking the center CP — reachable from both top/bottom lanes
-    cover(55, 70, 3, 3, true),
-    cover(85, 70, 3, 3, true),
-    // Flank depots need some cover nearby
-    cover(32, 30, 4, 4),
-    cover(108, 110, 4, 4),
-    cover(32, 110, 4, 4),
-    cover(108, 30, 4, 4),
+    // Long barricades dividing the three lanes (gaps at center + edges)
+    cover(44, 50, 32, 3),
+    cover(96, 50, 32, 3),
+    cover(44, 90, 32, 3),
+    cover(96, 90, 32, 3),
+    // Center control point — destructible cover on each side
+    cover(58, 70, 3, 8, true),
+    cover(82, 70, 3, 8, true),
+    // Flank control points — framed by short walls in the objective lane
+    cover(40, 62, 10, 3),
+    cover(40, 78, 10, 3),
+    cover(100, 62, 10, 3),
+    cover(100, 78, 10, 3),
+    // Top + bottom lane pillars
+    cover(40, 32, 5, 5),
+    cover(100, 32, 5, 5),
+    cover(40, 108, 5, 5),
+    cover(100, 108, 5, 5),
   ],
   controlPoints: [cp(40, 70), cp(70, 70), cp(100, 70)],
-  healingZones: [heal(30, 30), heal(110, 110)],
+  healingZones: [heal(70, 26), heal(70, 114)],
   hazards: [
     hazard(70, 58, 3.5),
     hazard(70, 82, 3.5),
   ],
-  depots: [depot(70, 30), depot(70, 110)],
+  depots: [depot(70, 40), depot(70, 100)],
 };
 
 // ============================================================================
-// Arena 5: OPEN PLAINS — Wide open long-range
+// Arena 5: OPEN PLAINS — Wide open, four quadrant objectives
 // ============================================================================
-// Minimal cover, four quadrant control points, one central healing oasis.
-// Rewards long-range weapons (fire_heavy), vision bonuses, and map control.
+// Almost no cover. Four control points anchor the quadrants and a single
+// large healing oasis sits at dead center as the contested prize.
 const PLAINS = {
   id: "plains",
   name: "Open Plains",
-  tagline: "Wide open · 4 CPs · Long-range",
+  tagline: "Wide open · 4 control points · Long-range",
   description:
-    "A wide open battlefield with only four pillars of cover and four quadrant "
-    + "control points. A central healing oasis becomes the contested prize. "
-    + "Rewards long-range combat, vision control, and fast mobility.",
+    "A wide open battlefield with four quadrant control points and a single "
+    + "central healing oasis as the contested prize. Only four pillars and a "
+    + "pair of destructible blocks break line of sight. Rewards long-range "
+    + "weapons, vision control and fast mobility.",
   difficulty: "Advanced",
+  accent: "#00ff88",
   recommendedModes: ["duel_1v1", "squad_2v2"],
   covers: [
-    cover(50, 50, 3, 3),
-    cover(90, 50, 3, 3),
-    cover(50, 90, 3, 3),
-    cover(90, 90, 3, 3),
-    // Two central destructible blocks near the heal oasis to provide minimal LoS breaks
-    cover(66, 70, 3, 3, true),
-    cover(74, 70, 3, 3, true),
+    // Four quadrant pillars
+    cover(48, 48, 5, 5),
+    cover(92, 48, 5, 5),
+    cover(48, 92, 5, 5),
+    cover(92, 92, 5, 5),
+    // Destructible blocks giving the central oasis minimal cover
+    cover(70, 60, 8, 3, true),
+    cover(70, 80, 8, 3, true),
   ],
-  controlPoints: [cp(35, 35), cp(105, 35), cp(35, 105), cp(105, 105)],
-  healingZones: [heal(70, 70, 5.5)],
+  controlPoints: [cp(38, 38), cp(102, 38), cp(38, 102), cp(102, 102)],
+  healingZones: [heal(70, 70, 6)],
   hazards: [],
-  depots: [depot(70, 30), depot(70, 110)],
+  depots: [depot(70, 32), depot(70, 108)],
 };
 
 // ============================================================================
