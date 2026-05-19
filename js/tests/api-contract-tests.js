@@ -7,6 +7,7 @@ import { compile } from "../lang/pipeline.js";
 import { runMatch } from "../engine/tick.js";
 import { LobbyManager } from "../server/lobby.js";
 import { MatchmakingQueue } from "../server/matchmaking.js";
+import { TournamentManager } from "../server/tournament.js";
 import { RatingStore, calculateEloChange, calculateEloDraw, getRankTier } from "../server/ranked.js";
 import { validateMatchMode, validateParticipantCount, validateMatchConfig, validateMatchRequest } from "../shared/validation.js";
 
@@ -487,6 +488,69 @@ function test_e2e_ffa_match() {
 }
 
 // ---------------------------------------------------------------------------
+// Tournament Contract Tests
+// ---------------------------------------------------------------------------
+
+function fakeTournamentParticipants(n) {
+  return Array.from({ length: n }, (_, i) => ({
+    seed: i + 1, wins: 0, losses: 0, eliminated: false, opponents: [],
+  }));
+}
+
+function test_round_robin_odd_field_schedules_every_pairing() {
+  // An odd field must still schedule all C(n,2) pairings exactly once,
+  // using a bye each round. The circle method without a phantom slot
+  // silently dropped pairings.
+  const tm = new TournamentManager();
+  const n = 5;
+  const tournament = { participants: fakeTournamentParticipants(n) };
+  const seen = new Set();
+  for (let r = 0; r < n; r++) {
+    for (const m of tm.generateRoundRobinPairings(tournament, r)) {
+      const key = [m.participant1Index, m.participant2Index].sort((a, b) => a - b).join("-");
+      assert.ok(!seen.has(key), `pairing ${key} scheduled twice`);
+      seen.add(key);
+    }
+  }
+  assert.equal(seen.size, (n * (n - 1)) / 2, `expected ${(n * (n - 1)) / 2} unique pairings, got ${seen.size}`);
+}
+
+function test_swiss_avoids_rematches() {
+  const tm = new TournamentManager();
+  const participants = fakeTournamentParticipants(4);
+  const seen = [];
+  for (let round = 0; round < 3; round++) {
+    for (const m of tm.generateSwissPairings(participants, null)) {
+      const a = m.participant1Index, b = m.participant2Index;
+      const key = [a, b].sort((x, y) => x - y).join("-");
+      assert.ok(!seen.includes(key), `Swiss produced a rematch (${key}) in round ${round}`);
+      seen.push(key);
+      participants[a].opponents.push(b);
+      participants[b].opponents.push(a);
+      participants[a].wins++;
+    }
+  }
+}
+
+function test_elo_decisive_result_always_moves_rating() {
+  // A decisive win across a wide skill gap previously rounded to 0 points.
+  const r = calculateEloChange(2600, 800);
+  assert.ok(r.winnerDelta >= 1, `winner must gain at least 1 point, got ${r.winnerDelta}`);
+  assert.equal(r.loserDelta, -r.winnerDelta, "Elo transfer must stay zero-sum");
+}
+
+function test_matchmaking_seed_is_deterministic() {
+  const bot = compileBot("warrior");
+  const matchSeed = (queueSeed) => {
+    const queue = new MatchmakingQueue(new RatingStore(), queueSeed);
+    queue.enqueue("p1", bot.program, bot.constants, "1v1_ranked");
+    queue.enqueue("p2", bot.program, bot.constants, "1v1_ranked");
+    return queue.tryMatch().config.seed;
+  };
+  assert.equal(matchSeed(4242), matchSeed(4242), "seeded queues must produce identical match seeds");
+}
+
+// ---------------------------------------------------------------------------
 // Test Runner
 // ---------------------------------------------------------------------------
 
@@ -507,12 +571,17 @@ const tests = [
   test_matchmaking_try_match_within_elo,
   test_matchmaking_no_match_different_modes,
   test_matchmaking_no_match_single_player,
+  test_matchmaking_seed_is_deterministic,
+  // Tournament
+  test_round_robin_odd_field_schedules_every_pairing,
+  test_swiss_avoids_rematches,
   // Ranked / Elo
   test_elo_change_winner_gains_loser_loses,
   test_elo_change_symmetric_at_equal_ratings,
   test_elo_never_below_zero,
   test_elo_draw_at_equal_ratings,
   test_elo_draw_higher_rated_loses_points,
+  test_elo_decisive_result_always_moves_rating,
   test_rank_tiers,
   test_rating_store_get_or_create,
   test_rating_store_record_result,

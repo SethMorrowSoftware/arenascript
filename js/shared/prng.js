@@ -42,7 +42,19 @@ export class SeededRNG {
     }
     /** Returns an integer in [min, max] inclusive */
     nextInt(min, max) {
-        return min + (this.nextU32() % (max - min + 1));
+        min = Math.floor(min);
+        max = Math.floor(max);
+        // Degenerate / inverted ranges would otherwise compute `% 0` (NaN)
+        // or a negative modulus.
+        if (max <= min) return min;
+        const range = max - min + 1;
+        // Rejection-sample to remove modulo bias: discard the short tail of
+        // uint32 values that would over-represent the low end of the range.
+        // For power-of-two ranges `limit` is 2^32 and no value is rejected.
+        const limit = 4294967296 - (4294967296 % range);
+        let v = this.nextU32();
+        while (v >= limit) v = this.nextU32();
+        return min + (v % range);
     }
     /** Returns a float in [min, max) */
     nextFloat(min, max) {

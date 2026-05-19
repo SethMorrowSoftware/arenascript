@@ -2,6 +2,26 @@
 // Lobby System — Multiplayer match orchestration
 // ============================================================================
 import { ARENA_WIDTH, ARENA_HEIGHT, MAX_TICKS, TICK_RATE } from "../shared/config.js";
+import { SeededRNG } from "../shared/prng.js";
+
+/**
+ * Assign a balanced team id to a player joining a lobby. 2v2 fills the
+ * smaller team; free-for-all and 1v1 give the lowest unused id. Using a raw
+ * `players.length` here mis-assigns teams after anyone leaves and rejoins.
+ */
+function assignTeamId(lobby) {
+    if (lobby.mode === "2v2") {
+        const counts = [0, 0];
+        for (const p of lobby.players) {
+            if (p.teamId === 0 || p.teamId === 1) counts[p.teamId]++;
+        }
+        return counts[0] <= counts[1] ? 0 : 1;
+    }
+    const used = new Set(lobby.players.map(p => p.teamId));
+    let t = 0;
+    while (used.has(t)) t++;
+    return t;
+}
 /** Generate a 128-bit unguessable lobby ID. Sequential IDs let attackers
  *  brute-force a lobby's URL and join/spoof the match mid-flight. */
 function generateLobbyId() {
@@ -25,9 +45,12 @@ export class LobbyManager {
     lobbies = new Map();
     matchRunner;
     matchmaking;
-    constructor(matchRunner, matchmaking) {
+    rng;
+    constructor(matchRunner, matchmaking, seed) {
         this.matchRunner = matchRunner;
         this.matchmaking = matchmaking;
+        // Lobby-owned PRNG for reproducible match seeds when seeded explicitly.
+        this.rng = new SeededRNG((seed ?? Date.now()) >>> 0);
     }
     /** Create a new lobby */
     createLobby(hostId, name, mode = "1v1_unranked") {
@@ -63,13 +86,10 @@ export class LobbyManager {
             return null;
         if (lobby.players.some(p => p.playerId === playerId))
             return null;
-        const teamId = lobby.mode === "2v2"
-            ? lobby.players.length % 2
-            : lobby.players.length;
         lobby.players.push({
             playerId,
             ready: false,
-            teamId,
+            teamId: assignTeamId(lobby),
         });
         return lobby;
     }
@@ -133,7 +153,7 @@ export class LobbyManager {
                 arenaHeight: ARENA_HEIGHT,
                 maxTicks: MAX_TICKS,
                 tickRate: TICK_RATE,
-                seed: Math.floor(Math.random() * 2147483647),
+                seed: this.rng.nextInt(0, 2147483647),
             },
         });
         lobby.status = "completed";

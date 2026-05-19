@@ -4,10 +4,15 @@
 import { runMatch } from "../engine/tick.js";
 import { SeededRNG } from "../shared/prng.js";
 import { ARENA_WIDTH, ARENA_HEIGHT, MAX_TICKS, TICK_RATE } from "../shared/config.js";
+
+// Monotonic counter so two tournaments created in the same millisecond with
+// the same seed cannot collide on their id (which keys the tournaments Map).
+let nextTournamentSequence = 0;
+
 export class TournamentManager {
     tournaments = new Map();
     createTournament(name, format, entries, seed = Date.now()) {
-        const id = `tournament_${seed}_${Date.now()}`;
+        const id = `tournament_${seed}_${Date.now()}_${++nextTournamentSequence}`;
         const rng = new SeededRNG(seed);
         // Seed participants by Elo (highest first)
         const sorted = [...entries].sort((a, b) => b.elo - a.elo);
@@ -18,6 +23,9 @@ export class TournamentManager {
             wins: 0,
             losses: 0,
             eliminated: false,
+            // Participant indices already faced — used by Swiss pairing to
+            // avoid rematches.
+            opponents: [],
         }));
         const tournament = {
             id,
@@ -113,6 +121,9 @@ export class TournamentManager {
             const result = runMatch(setup);
             match.matchId = `tmatch_${rng.nextInt(0, 2147483647)}_${state.currentRound}`;
             match.completed = true;
+            // Record the pairing so Swiss can avoid rematches in later rounds.
+            tournament.participants[match.participant1Index].opponents.push(match.participant2Index);
+            tournament.participants[match.participant2Index].opponents.push(match.participant1Index);
             if (result.winner === 0) {
                 match.winner = match.participant1Index;
                 tournament.participants[match.participant1Index].wins++;
@@ -146,8 +157,10 @@ export class TournamentManager {
             tournament.status = "completed";
         }
         else if (tournament.format === "round_robin") {
-            // Round robin ends when we've done n-1 rounds
-            const totalRounds = tournament.participants.length - 1;
+            // A round-robin needs n-1 rounds for an even field and n rounds
+            // for an odd field (one player takes a bye each round).
+            const n = tournament.participants.length;
+            const totalRounds = n % 2 === 0 ? n - 1 : n;
             if (tournament.rounds.length >= totalRounds) {
                 tournament.status = "completed";
             }
@@ -210,25 +223,36 @@ export class TournamentManager {
         return matches;
     }
     generateRoundRobinPairings(tournament, roundIndex) {
-        const n = tournament.participants.length;
+        const realN = tournament.participants.length;
+        // Odd fields get a phantom "bye" slot (index === realN) so the circle
+        // method stays balanced; a real player drawn against it takes a bye.
+        const n = realN % 2 === 0 ? realN : realN + 1;
         const matches = [];
-        // Circle method for round-robin scheduling
-        // Fix player 0, rotate the rest (indices 1..n-1)
-        // For round r, apply r rotations to the non-fixed portion
+        // Circle method: fix player 0, rotate the rest (indices 1..n-1).
         const fixed = 0;
         const rest = Array.from({ length: n - 1 }, (_, i) => i + 1);
-        // Rotate by roundIndex positions
-        const rotateBy = roundIndex % rest.length;
+        const rotateBy = rest.length > 0 ? roundIndex % rest.length : 0;
         const rotated = [
             ...rest.slice(rest.length - rotateBy),
             ...rest.slice(0, rest.length - rotateBy),
         ];
         const indices = [fixed, ...rotated];
         for (let i = 0; i < Math.floor(n / 2); i++) {
+            const a = indices[i];
+            const b = indices[n - 1 - i];
+            // A pairing that includes the phantom slot is a bye for the real
+            // player; no match is scheduled.
+            if (a >= realN || b >= realN) {
+                const realPlayer = a >= realN ? b : a;
+                if (realPlayer < realN) {
+                    tournament.participants[realPlayer].wins++;
+                }
+                continue;
+            }
             matches.push({
                 matchId: "",
-                participant1Index: indices[i],
-                participant2Index: indices[n - 1 - i],
+                participant1Index: a,
+                participant2Index: b,
                 completed: false,
             });
         }
@@ -240,20 +264,46 @@ export class TournamentManager {
         const matches = [];
         const paired = new Set();
         for (let i = 0; i < sorted.length; i++) {
-            if (paired.has(sorted[i].seed - 1))
+            const p1 = sorted[i];
+            if (paired.has(p1.seed - 1))
                 continue;
+            let opponent = null;
+            // Prefer an opponent this player has not already faced.
             for (let j = i + 1; j < sorted.length; j++) {
-                if (paired.has(sorted[j].seed - 1))
+                const p2 = sorted[j];
+                if (paired.has(p2.seed - 1))
                     continue;
+                if (p1.opponents && p1.opponents.includes(p2.seed - 1))
+                    continue;
+                opponent = p2;
+                break;
+            }
+            // No unfaced opponent remains — fall back to the nearest-ranked
+            // available player even though it is a rematch, so two players
+            // do not both end up with an undeserved bye.
+            if (!opponent) {
+                for (let j = i + 1; j < sorted.length; j++) {
+                    const p2 = sorted[j];
+                    if (paired.has(p2.seed - 1))
+                        continue;
+                    opponent = p2;
+                    break;
+                }
+            }
+            if (opponent) {
                 matches.push({
                     matchId: "",
-                    participant1Index: sorted[i].seed - 1,
-                    participant2Index: sorted[j].seed - 1,
+                    participant1Index: p1.seed - 1,
+                    participant2Index: opponent.seed - 1,
                     completed: false,
                 });
-                paired.add(sorted[i].seed - 1);
-                paired.add(sorted[j].seed - 1);
-                break;
+                paired.add(p1.seed - 1);
+                paired.add(opponent.seed - 1);
+            }
+            else {
+                // Genuine odd one out — award a bye for this round.
+                paired.add(p1.seed - 1);
+                p1.wins++;
             }
         }
         return matches;

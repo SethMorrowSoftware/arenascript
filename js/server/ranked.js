@@ -18,6 +18,12 @@ export function calculateEloChange(winnerRating, loserRating) {
     const kLoser = getKFactor(loserRating);
     const k = (kWinner + kLoser) / 2;
     let winnerDelta = Math.round(k * (1 - expectedWin));
+    // A decisive result must always move the ladder. Across a large skill
+    // gap `k * (1 - expectedWin)` rounds to 0, which would freeze the top of
+    // the ladder entirely — floor the transfer at 1 point.
+    if (winnerDelta < 1) {
+        winnerDelta = 1;
+    }
     // Enforce a rating floor of 0 without breaking zero-sum: if the loser
     // would drop below zero, cap the transfer at whatever they actually have.
     // Previously the loser was clamped but the winner still received the full

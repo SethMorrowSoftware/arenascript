@@ -2,6 +2,13 @@
 // Centralized Mode-Specific Validation
 // ============================================================================
 
+// Sane outer bounds for match configuration. The lower arena bound keeps a
+// match playable; the upper bounds stop a single request from scheduling an
+// effectively unbounded simulation (a cheap denial-of-service vector).
+const MIN_ARENA_DIMENSION = 20;
+const MAX_ARENA_DIMENSION = 1000;
+const MAX_MATCH_TICKS = 100000;
+
 const VALID_MODES = [
   "1v1_ranked",
   "1v1_unranked",
@@ -95,18 +102,21 @@ export function validateMatchConfig(config) {
   }
 
   // arenaWidth
-  if (typeof config.arenaWidth !== "number" || !Number.isFinite(config.arenaWidth) || config.arenaWidth <= 0) {
-    errors.push("config.arenaWidth must be a positive number");
+  if (typeof config.arenaWidth !== "number" || !Number.isFinite(config.arenaWidth) ||
+      config.arenaWidth < MIN_ARENA_DIMENSION || config.arenaWidth > MAX_ARENA_DIMENSION) {
+    errors.push(`config.arenaWidth must be a number in [${MIN_ARENA_DIMENSION}, ${MAX_ARENA_DIMENSION}]`);
   }
 
   // arenaHeight
-  if (typeof config.arenaHeight !== "number" || !Number.isFinite(config.arenaHeight) || config.arenaHeight <= 0) {
-    errors.push("config.arenaHeight must be a positive number");
+  if (typeof config.arenaHeight !== "number" || !Number.isFinite(config.arenaHeight) ||
+      config.arenaHeight < MIN_ARENA_DIMENSION || config.arenaHeight > MAX_ARENA_DIMENSION) {
+    errors.push(`config.arenaHeight must be a number in [${MIN_ARENA_DIMENSION}, ${MAX_ARENA_DIMENSION}]`);
   }
 
   // maxTicks
-  if (typeof config.maxTicks !== "number" || !Number.isInteger(config.maxTicks) || config.maxTicks <= 0) {
-    errors.push("config.maxTicks must be a positive integer");
+  if (typeof config.maxTicks !== "number" || !Number.isInteger(config.maxTicks) ||
+      config.maxTicks <= 0 || config.maxTicks > MAX_MATCH_TICKS) {
+    errors.push(`config.maxTicks must be a positive integer no greater than ${MAX_MATCH_TICKS}`);
   }
 
   // tickRate
