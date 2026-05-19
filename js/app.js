@@ -4329,7 +4329,7 @@ function replayTick(timestamp) {
     }
     const frame = replayData[replayFrameIndex];
     if (!frame) return;
-    drawFrame(frame, replayLabels);
+    drawFrame(frame, replayLabels, replayFrameIndex > 0 ? replayData[replayFrameIndex - 1] : null);
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
 
@@ -4373,7 +4373,7 @@ function scrubReplay() {
   replayFrameIndex = idx;
   const frame = replayData[idx];
   if (frame) {
-    drawFrame(frame, replayLabels);
+    drawFrame(frame, replayLabels, idx > 0 ? replayData[idx - 1] : null);
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
     syncResultsToFrame();
@@ -4389,7 +4389,7 @@ function stepReplayForward() {
   }
   const frame = replayData[replayFrameIndex];
   if (frame) {
-    drawFrame(frame, replayLabels);
+    drawFrame(frame, replayLabels, replayFrameIndex > 0 ? replayData[replayFrameIndex - 1] : null);
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
@@ -4409,7 +4409,7 @@ function jumpToBookmark(bookmarkName) {
   replayFrameIndex = idx;
   const frame = replayData[idx];
   if (frame) {
-    drawFrame(frame, replayLabels);
+    drawFrame(frame, replayLabels, idx > 0 ? replayData[idx - 1] : null);
     replayScrubber.value = idx;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick} (${bookmarkName})`;
@@ -4426,7 +4426,7 @@ function stepReplayBack() {
   }
   const frame = replayData[replayFrameIndex];
   if (frame) {
-    drawFrame(frame, replayLabels);
+    drawFrame(frame, replayLabels, replayFrameIndex > 0 ? replayData[replayFrameIndex - 1] : null);
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
@@ -5516,7 +5516,14 @@ function getRemoteBotMap() {
 }
 
 function setRemoteBotMap(map) {
-  localStorage.setItem(REMOTE_BOT_MAP_KEY, JSON.stringify(map || {}));
+  // Best-effort: storage can throw in private mode or when the quota is
+  // full. A lost remote-id mapping is non-fatal, so swallow the failure
+  // rather than aborting the cloud-sync flow with an uncaught exception.
+  try {
+    localStorage.setItem(REMOTE_BOT_MAP_KEY, JSON.stringify(map || {}));
+  } catch (e) {
+    console.warn("Could not persist remote bot map:", e);
+  }
 }
 
 function rememberRemoteMapping(remoteId, localId) {

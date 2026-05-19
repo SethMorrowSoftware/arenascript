@@ -44,10 +44,23 @@ export function getById(id) {
   return getAll().find((b) => b.id === id) ?? null;
 }
 
+/**
+ * Persist the library. Returns false if storage is unavailable (Safari
+ * private mode throws on setItem) or full, so callers can report the
+ * failure instead of crashing the Save flow with an uncaught exception.
+ */
 function saveAll(bots) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(bots));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(bots));
+  } catch (e) {
+    console.error("Failed to save bot library:", e);
+    return false;
+  }
   emit();
+  return true;
 }
+
+const STORAGE_FAILED = "Could not save — browser storage is full or unavailable.";
 
 function makeId() {
   return "user_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
@@ -149,7 +162,9 @@ export function addBot(source, { overrideName = null } = {}) {
   };
 
   bots.push(bot);
-  saveAll(bots);
+  if (!saveAll(bots)) {
+    return { ok: false, errors: [STORAGE_FAILED], warnings: v.warnings };
+  }
   return { ok: true, bot, errors: [], warnings: v.warnings };
 }
 
@@ -170,7 +185,9 @@ export function updateBot(id, source) {
     source,
     updatedAt: Date.now(),
   };
-  saveAll(bots);
+  if (!saveAll(bots)) {
+    return { ok: false, errors: [STORAGE_FAILED], warnings: v.warnings };
+  }
   return { ok: true, bot: bots[idx], errors: [], warnings: v.warnings };
 }
 
@@ -182,14 +199,13 @@ export function renameBot(id, newName) {
   const clean = String(newName || "").trim();
   if (!clean) return false;
   bots[idx] = { ...bots[idx], name: clean, updatedAt: Date.now() };
-  saveAll(bots);
-  return true;
+  return saveAll(bots);
 }
 
-/** Delete a bot by id. */
+/** Delete a bot by id. Returns false if the change could not be persisted. */
 export function deleteBot(id) {
   const bots = getAll().filter((b) => b.id !== id);
-  saveAll(bots);
+  return saveAll(bots);
 }
 
 /** Duplicate a bot, returning the new entry. */

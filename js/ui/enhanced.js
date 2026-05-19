@@ -178,8 +178,9 @@ export function installLangReference() {
   });
 
   document.addEventListener("keydown", (e) => {
-    // Ctrl/Cmd + / opens reference
-    if ((e.ctrlKey || e.metaKey) && e.key === "/") {
+    // Ctrl/Cmd + / opens reference. Also accept e.code === "Slash" so the
+    // shortcut still fires on layouts where "/" needs Shift (AZERTY etc.).
+    if ((e.ctrlKey || e.metaKey) && (e.key === "/" || e.code === "Slash")) {
       e.preventDefault();
       drawer.hidden ? open() : close();
     }
