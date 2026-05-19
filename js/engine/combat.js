@@ -7,6 +7,7 @@ import { getVisibleEnemies, hasLineOfSight } from "./los.js";
 import {
   CLASS_STATS, ATTACK_DAMAGE, ATTACK_RANGE, ATTACK_COOLDOWN, ATTACK_ENERGY_COST,
   FIRE_AT_DAMAGE, FIRE_AT_RANGE, FIRE_AT_COOLDOWN, PROJECTILE_SPEED, PROJECTILE_TTL,
+  ROBOT_RADIUS, PROJECTILE_RADIUS, PROJECTILE_SUBSTEP_DISTANCE,
   BURST_FIRE_DAMAGE, BURST_FIRE_RANGE, BURST_FIRE_COOLDOWN, BURST_FIRE_ENERGY_COST,
   GRENADE_DAMAGE, GRENADE_RADIUS, GRENADE_RANGE, GRENADE_COOLDOWN, GRENADE_ENERGY_COST,
   SHIELD_DURATION, SHIELD_COOLDOWN, SHIELD_ENERGY_COST, LOW_HEALTH_THRESHOLD,
@@ -346,51 +347,65 @@ export function applyDamage(world, target, damage, sourceId) {
 /** Update projectiles — move and check collisions */
 export function updateProjectiles(world) {
   const toRemove = [];
+  const hitRadius = ROBOT_RADIUS + PROJECTILE_RADIUS;
 
   for (const [id, proj] of world.projectiles) {
-    // Move projectile
-    proj.position = add(proj.position, proj.velocity);
-    proj.ttl--;
+    const owner = world.getRobot(proj.ownerId);
 
-    // Check out of bounds
-    if (
-      proj.position.x < 0 || proj.position.x > world.config.arenaWidth ||
-      proj.position.y < 0 || proj.position.y > world.config.arenaHeight ||
-      proj.ttl <= 0
-    ) {
-      toRemove.push(id);
-      continue;
-    }
+    // Advance the projectile in steps no larger than PROJECTILE_SUBSTEP_DISTANCE
+    // so fast rounds cannot tunnel through a robot or a thin wall between
+    // ticks. Collision is checked at every substep.
+    const speed = Math.hypot(proj.velocity.x, proj.velocity.y);
+    const steps = Math.max(1, Math.ceil(speed / PROJECTILE_SUBSTEP_DISTANCE));
+    const stepVel = { x: proj.velocity.x / steps, y: proj.velocity.y / steps };
+    let consumed = false;
 
-    // Check collision with cover (projectiles blocked by walls)
-    let hitCover = false;
-    for (const cover of world.covers.values()) {
-      const halfW = cover.width / 2;
-      const halfH = cover.height / 2;
-      if (proj.position.x >= cover.position.x - halfW && proj.position.x <= cover.position.x + halfW &&
-          proj.position.y >= cover.position.y - halfH && proj.position.y <= cover.position.y + halfH) {
-        hitCover = true;
-        break;
-      }
-    }
-    if (hitCover) {
-      toRemove.push(id);
-      continue;
-    }
+    for (let s = 0; s < steps && !consumed; s++) {
+      proj.position = add(proj.position, stepVel);
 
-    // Check collision with robots
-    for (const robot of world.robots.values()) {
-      if (!robot.alive) continue;
-      if (robot.id === proj.ownerId) continue;
-      // Same team? Skip friendly fire
-      const owner = world.getRobot(proj.ownerId);
-      if (owner && owner.teamId === robot.teamId) continue;
-
-      if (distance(proj.position, robot.position) < 1.5) {
-        applyDamage(world, robot, proj.damage, proj.ownerId);
+      // Out of bounds
+      if (
+        proj.position.x < 0 || proj.position.x > world.config.arenaWidth ||
+        proj.position.y < 0 || proj.position.y > world.config.arenaHeight
+      ) {
         toRemove.push(id);
+        consumed = true;
         break;
       }
+
+      // Cover (projectiles blocked by walls)
+      for (const cover of world.covers.values()) {
+        const halfW = cover.width / 2;
+        const halfH = cover.height / 2;
+        if (proj.position.x >= cover.position.x - halfW && proj.position.x <= cover.position.x + halfW &&
+            proj.position.y >= cover.position.y - halfH && proj.position.y <= cover.position.y + halfH) {
+          toRemove.push(id);
+          consumed = true;
+          break;
+        }
+      }
+      if (consumed) break;
+
+      // Robots (friendly fire disabled)
+      for (const robot of world.robots.values()) {
+        if (!robot.alive) continue;
+        if (robot.id === proj.ownerId) continue;
+        if (owner && owner.teamId === robot.teamId) continue;
+        if (distance(proj.position, robot.position) < hitRadius) {
+          applyDamage(world, robot, proj.damage, proj.ownerId);
+          toRemove.push(id);
+          consumed = true;
+          break;
+        }
+      }
+    }
+
+    if (consumed) continue;
+
+    // Survived the move — age it; expire when TTL runs out.
+    proj.ttl--;
+    if (proj.ttl <= 0) {
+      toRemove.push(id);
     }
   }
 

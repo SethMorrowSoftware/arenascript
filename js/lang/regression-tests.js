@@ -637,6 +637,44 @@ on tick {
   assert.ok(defender.health < healthBefore, "Expected burst_fire/grenade actions to deal damage");
 }
 
+function testFireLightDispatchedByTickLoop() {
+  // Regression: the tick loop's combat dispatch used a stale whitelist that
+  // omitted fire_light/fire_heavy/zap/vent_heat, so those weapons were inert
+  // in real matches even though resolveCombat implemented them. This drives
+  // a full match (not a direct resolveCombat call) to exercise the dispatch.
+  const sniper = compile(`robot "Sniper" version "1.0"
+meta { class: "ranger" }
+on tick {
+  let e = nearest_enemy()
+  if e != null {
+    fire_light e.position
+    move_toward e.position
+  } else {
+    move_forward
+  }
+}`);
+  const dummy = compile(`robot "Dummy" version "1.0"
+meta { class: "tank" }
+on tick { }`);
+  assert.ok(sniper.success && dummy.success, "combat bots must compile");
+
+  // A compact arena ("plains" cover sits off-map at this size) spawns the
+  // two robots already inside fire_light range with a clear line of sight.
+  const result = runMatch({
+    config: { mode: "1v1_ranked", arenaId: "plains", arenaWidth: 24, arenaHeight: 24, maxTicks: 200, tickRate: 30, seed: 9 },
+    participants: [
+      { program: sniper.program, constants: sniper.constants, playerId: "a", teamId: 0 },
+      { program: dummy.program, constants: dummy.constants, playerId: "b", teamId: 1 },
+    ],
+  });
+
+  // The dummy never attacks, so any robot-attributed damage proves the
+  // sniper's fire_light reached the tick-loop combat dispatch.
+  let totalDamage = 0;
+  for (const stats of result.robotStats.values()) totalDamage += stats.damageDealt;
+  assert.ok(totalDamage > 0, "fire_light must deal damage through the tick loop");
+}
+
 function testHealingZonesAndSensorsCompile() {
   const source = `robot "MedicScout" version "1.0"
 on tick {
@@ -1683,6 +1721,7 @@ function run() {
     testSquadBlockCompiles,
     testSquadSizeSpawnsMultipleRobotsPerParticipant,
     testNewCombatActionsCompileAndRun,
+    testFireLightDispatchedByTickLoop,
     testHealingZonesAndSensorsCompile,
     testNewSensorsCompile,
     testNewActionsCompile,

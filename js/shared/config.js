@@ -34,6 +34,10 @@ export const GRENADE_ENERGY_COST = 20;
 export const SHIELD_ENERGY_COST = 15;
 export const PROJECTILE_SPEED = 4.0;
 export const PROJECTILE_TTL = 20; // ticks
+export const PROJECTILE_RADIUS = 0.5;
+// Projectiles advance in steps no larger than this so fast rounds cannot
+// tunnel through robots or thin cover between ticks.
+export const PROJECTILE_SUBSTEP_DISTANCE = 0.5;
 // --- Perception ---
 export const LOS_RANGE = 150.0;
 export const DEFAULT_VISION_RANGE = 35.0;
