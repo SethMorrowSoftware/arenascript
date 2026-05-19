@@ -56,7 +56,8 @@ A deterministic robot arena combat engine with a custom domain-specific language
 ### Competitive infrastructure
 - **Ranked** — Elo-based matchmaking, Bronze → Champion tiers
 - **Tournaments** — single-elim, round-robin, Swiss formats
-- **PHP backend** — matchmaking, lobbies, rankings, tournaments
+- **PHP backend** — single MySQL API for accounts, saved bots, ranked
+  ratings, lobbies, and match history
 
 ## Tech Stack
 
@@ -145,13 +146,13 @@ arenascript/
 │       ├── types.js        # Core type definitions
 │       ├── prng.js         # Seeded deterministic PRNG
 │       └── vec2.js         # 2D vector math
-└── api/                    # PHP backend endpoints
-    ├── config.php          # Game configuration
-    ├── matchmaking.php     # Queue management & pairing
-    ├── ranked.php          # Elo rating calculations
-    ├── tournament.php      # Tournament bracket generation
-    ├── match-runner.php    # Match execution & result storage
-    └── lobby.php           # Lobby creation & joining
+└── api/                    # PHP backend (MySQL, bearer sessions)
+    ├── config.php          # Game balance constants + GET /api/config.php
+    ├── _bootstrap.php      # Shared HTTP helpers (CORS, JSON, errors)
+    ├── db.php              # MySQL connection + session auth
+    ├── install.php         # One-time shared-hosting installer
+    ├── migrations/         # MySQL schema
+    └── v1/                 # Accounts, bots, ranked, lobbies, matches
 ```
 
 ## ArenaScript Language
@@ -285,16 +286,21 @@ K-factor is 32 for ratings below 2400, and 16 above.
 
 ## PHP API
 
-The backend provides REST endpoints for multiplayer features:
+The backend is a single MySQL-backed API under `api/v1/*`, using bearer-token
+sessions. See [api/README.md](api/README.md) for the full endpoint reference.
 
 | Endpoint | Purpose |
 |----------|---------|
 | `api/config.php` | Retrieve game balance configuration |
-| `api/matchmaking.php` | Enqueue players and find Elo-based pairings |
-| `api/ranked.php` | Calculate and update Elo ratings |
-| `api/tournament.php` | Generate brackets (single-elim, round-robin, Swiss) |
-| `api/match-runner.php` | Execute matches server-side and store results |
-| `api/lobby.php` | Create/join lobbies, supports 1v1, 2v2, and FFA modes |
+| `api/v1/auth/*` | Register, log in/out, current user |
+| `api/v1/bots/*` | Saved bots and their versions |
+| `api/v1/matches/report.php` | Report a completed match, update ratings |
+| `api/v1/leaderboard.php` | Ranked leaderboard by queue |
+| `api/v1/lobbies/index.php` | Create/join/list lobbies |
+| `api/v1/admin/*` | Admin user management (admin role) |
+
+Matchmaking queue pairing and tournament brackets run client-side in
+`js/server/` (`matchmaking.js`, `tournament.js`).
 
 ## Deployment
 

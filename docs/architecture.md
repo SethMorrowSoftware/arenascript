@@ -291,15 +291,22 @@ JavaScript implementations of competitive features that can run in the browser:
 
 ### Server-Side (`api/`)
 
-PHP backend endpoints that mirror the client-side logic for authoritative
-server execution:
+A single MySQL-backed PHP API under `api/v1/*`, using bearer-token sessions:
 
-- **config.php** — Shared game balance constants
-- **matchmaking.php** — Server-authoritative queue and pairing
-- **ranked.php** — Elo calculations with K-factor adjustment
-- **tournament.php** — Bracket generation with seeded PRNG for reproducibility
-- **match-runner.php** — Server-side match execution
-- **lobby.php** — Lobby lifecycle management
+- **config.php** — Shared game balance constants (also `GET /api/config.php`)
+- **_bootstrap.php** — Shared HTTP helpers: CORS, JSON I/O, error handling,
+  rate limiting
+- **db.php** — MySQL connection and bearer-session authentication
+- **v1/auth/** — Register, log in/out, current user
+- **v1/bots/** — Saved bots and versions
+- **v1/matches/report.php** — Match result reporting + Elo update
+- **v1/leaderboard.php**, **v1/lobbies/**, **v1/admin/** — Ranked board,
+  lobbies, admin tooling
+- **install.php** — One-time shared-hosting installer
+
+Match results are reported by the client; the server validates structure
+and blocks obvious abuse but does not re-run the simulation. Matchmaking
+pairing and tournament brackets run client-side (`js/server/`).
 
 ---
 
