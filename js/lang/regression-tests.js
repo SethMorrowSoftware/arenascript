@@ -1459,6 +1459,88 @@ on tick { break }`);
   assert.ok(!r.success, "break outside loop must error");
 }
 
+function testForBreakDoesNotLeakIterator() {
+  // A `break` inside an inner `for` must still pop the VM iterator so the
+  // enclosing `for` keeps iterating its own list. Regression: break used to
+  // jump past ITER_END, leaving the inner iterator on the stack.
+  const source = `robot "NestedBreak" version "1.0"
+meta { class: "ranger" }
+state { trace: number = 0 }
+on tick {
+  let outer = visible_enemies()
+  let inner = visible_allies()
+  for a in outer {
+    for b in inner {
+      break
+    }
+    set trace = trace * 10 + a
+  }
+}`;
+  const r = compile(source);
+  assert.ok(r.success, `compile failed: ${r.errors.join(", ")}`);
+  const vm = new VM(r.program, "robot_1", (_, name) => {
+    if (name === "visible_enemies") return [1, 2, 3];
+    if (name === "visible_allies") return [9];
+    return null;
+  });
+  vm.setConstants(r.constants);
+  const res = vm.executeEvent("tick", null, 1);
+  assert.ok(!res.error, `VM error: ${res.error}`);
+  assert.equal(vm.getState()[0], 123, "outer loop must iterate 1,2,3 in order");
+}
+
+function testForReturnInHelperDoesNotLeakIterator() {
+  // A function that returns early from inside a `for` must unwind its
+  // iterator. Otherwise a caller looping over its own list reads the
+  // leaked iterator and iterates the wrong data.
+  const source = `robot "HelperReturn" version "1.0"
+meta { class: "ranger" }
+state { trace: number = 0 }
+fn firstOf(items: list<number>) -> number {
+  for x in items {
+    return x
+  }
+  return -1
+}
+on tick {
+  let nums = visible_enemies()
+  for n in nums {
+    let f = firstOf(nums)
+    set trace = trace * 10 + n
+  }
+}`;
+  const r = compile(source);
+  assert.ok(r.success, `compile failed: ${r.errors.join(", ")}`);
+  const vm = new VM(r.program, "robot_1", (_, name) => {
+    if (name === "visible_enemies") return [1, 2, 3];
+    return null;
+  });
+  vm.setConstants(r.constants);
+  const res = vm.executeEvent("tick", null, 1);
+  assert.ok(!res.error, `VM error: ${res.error}`);
+  assert.equal(vm.getState()[0], 123, "caller loop must iterate 1,2,3 in order");
+}
+
+function testTimersDoNotAccumulateInOnTick() {
+  // An `every` block placed in `on tick` re-runs its scheduling opcode each
+  // tick. Timers must be deduplicated by body offset so the timer list
+  // cannot grow without bound and hang the match.
+  const source = `robot "TimerSpam" version "1.0"
+meta { class: "ranger" }
+on tick {
+  every 5 { stop }
+}`;
+  const r = compile(source);
+  assert.ok(r.success, `compile failed: ${r.errors.join(", ")}`);
+  const vm = new VM(r.program, "robot_1", () => null);
+  vm.setConstants(r.constants);
+  for (let t = 0; t < 50; t++) {
+    vm.executeEvent("tick", null, t);
+    vm.executeTimers(t);
+  }
+  assert.equal(vm.timers.length, 1, "every-in-on-tick must register exactly one timer");
+}
+
 function testListIndexing() {
   const source = `robot "IdxTest" version "1.0"
 meta { class: "ranger" }
@@ -1653,6 +1735,9 @@ function run() {
     testWhileLoopCompilesAndRuns,
     testWhileBreakStopsLoop,
     testContinueSkipsRestOfBody,
+    testForBreakDoesNotLeakIterator,
+    testForReturnInHelperDoesNotLeakIterator,
+    testTimersDoNotAccumulateInOnTick,
     testBreakOutsideLoopErrors,
     testListIndexing,
     testStringConcatRuntime,

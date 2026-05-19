@@ -9,6 +9,10 @@ import { BUDGET_INSTRUCTIONS } from "../shared/config.js";
 export class VM {
   static MAX_STACK_DEPTH = 1024;
   static MAX_CALL_DEPTH = 64;
+  // Hard ceiling on distinct scheduled timers per robot. Timers are also
+  // deduplicated by body offset (see registerTimer), so this only bites a
+  // program with an implausible number of distinct after/every blocks.
+  static MAX_TIMERS = 64;
 
   constructor(program, robotId, sensorGateway) {
     this.program = program;
@@ -28,8 +32,9 @@ export class VM {
 
     // Initialize state slots with default values
     this.stateSlots = program.stateSlots.map(s => s.initialValue);
-    // Size locals array to fit max call depth * local window size
-    const localsSize = Math.max(256, (program.localWindowSize || 1) * VM.MAX_CALL_DEPTH);
+    // Size locals array to fit the base frame plus MAX_CALL_DEPTH nested
+    // call frames, each of which gets its own local-variable window.
+    const localsSize = Math.max(256, (program.localWindowSize || 1) * (VM.MAX_CALL_DEPTH + 1));
     this.locals = new Array(localsSize).fill(null);
     this.localBase = 0;
     // Source map from the compiler: bytecode offset -> { line, column }
@@ -364,7 +369,7 @@ export class VM {
             const bodyEnd = this.readU16();
             const delay = Math.max(1, this.popNum());
             const bodyStart = this.ip; // body begins right after the opcode+operand
-            this.timers.push({
+            this.registerTimer({
               triggerTick: this.currentTick + delay,
               bodyOffset: bodyStart,
               repeat: false,
@@ -378,7 +383,7 @@ export class VM {
             const bodyEnd = this.readU16();
             const interval = Math.max(1, this.popNum());
             const bodyStart = this.ip;
-            this.timers.push({
+            this.registerTimer({
               triggerTick: this.currentTick + interval,
               bodyOffset: bodyStart,
               repeat: true,
@@ -557,11 +562,30 @@ export class VM {
     return obj;
   }
 
+  /**
+   * Register a scheduled timer, deduplicating by body offset. An after/every
+   * block placed inside `on tick` re-executes its scheduling opcode every
+   * tick; without dedup that would append a fresh timer each tick and grow
+   * `this.timers` without bound until the match hangs. Re-registering an
+   * already-scheduled body is a no-op.
+   */
+  registerTimer(timer) {
+    for (const existing of this.timers) {
+      if (existing.bodyOffset === timer.bodyOffset) return;
+    }
+    if (this.timers.length >= VM.MAX_TIMERS) return;
+    this.timers.push(timer);
+  }
+
   /** Execute any timers that have fired at the given tick */
   executeTimers(tick) {
     this.currentTick = tick;
     const allActions = [];
     const firedIndices = [];
+    // One shared instruction budget for every timer that fires this tick, so
+    // a robot cannot multiply its per-tick CPU allowance by scheduling many
+    // timers — each fired timer draws from the same pool.
+    this.budget.reset();
 
     for (let i = 0; i < this.timers.length; i++) {
       const timer = this.timers[i];
@@ -570,7 +594,6 @@ export class VM {
         this.ip = timer.bodyOffset;
         this.stack = [];
         this.actions = [];
-        this.budget.reset();
         this.callStack = [];
         this.iterStack = [];
         this.localBase = 0;

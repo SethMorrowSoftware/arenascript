@@ -387,11 +387,15 @@ export class Compiler {
         // Jump back to loop start
         b.emitWithOperand(Op.JMP, loopStart);
         b.patchJump(exitJump);
+        // `break` jumps to the ITER_END (not past it) so the iterator is
+        // still popped off the VM's iterator stack. Skipping it would leak
+        // the iterator and corrupt any enclosing loop's iteration.
+        const iterEndOffset = b.code.length;
         b.emit(Op.ITER_END);
-        // `break` jumps past the ITER_END so the iterator stack still pops
-        // via an explicit cleanup emitted before the forward jump. We emit
-        // an extra ITER_END after break-target so state stays balanced.
-        for (const off of ctx.breaks) b.patchJump(off);
+        for (const off of ctx.breaks) {
+          b.code[off + 1] = (iterEndOffset >> 8) & 0xff;
+          b.code[off + 2] = iterEndOffset & 0xff;
+        }
         break;
       }
 
@@ -439,10 +443,18 @@ export class Compiler {
       }
 
       case "ReturnStatement": {
+        // Unwind iterator frames for every `for` loop that lexically
+        // encloses this return. The VM's RETURN opcodes do not touch the
+        // iterator stack, so without explicit ITER_END cleanup an early
+        // return from inside a `for` leaks the iterator and corrupts the
+        // next loop executed in the same run.
+        const enclosingForLoops = this.#loopStack.filter(c => c.kind === "for").length;
         if (stmt.value) {
           this.#compileExpression(stmt.value, b);
+          for (let i = 0; i < enclosingForLoops; i++) b.emit(Op.ITER_END);
           b.emit(Op.RETURN_VAL, stmt.span.line, stmt.span.column);
         } else {
+          for (let i = 0; i < enclosingForLoops; i++) b.emit(Op.ITER_END);
           b.emit(Op.RETURN, stmt.span.line, stmt.span.column);
         }
         break;
