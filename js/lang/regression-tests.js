@@ -1579,6 +1579,48 @@ on tick {
   assert.equal(vm.timers.length, 1, "every-in-on-tick must register exactly one timer");
 }
 
+function testVoidFunctionCalledAsStatement() {
+  // A function with no `return value` falls through to an implicit RETURN.
+  // Called as a statement it must not underflow the operand stack — the
+  // ExpressionStatement still emits a POP that needs a value to discard.
+  const source = `robot "Proc" version "1.0"
+meta { class: "ranger" }
+fn doStuff() {
+  stop
+}
+on tick {
+  doStuff()
+}`;
+  const r = compile(source);
+  assert.ok(r.success, `compile failed: ${r.errors.join(", ")}`);
+  const vm = new VM(r.program, "robot_1", () => null);
+  vm.setConstants(r.constants);
+  const res = vm.executeEvent("tick", null, 1);
+  assert.ok(!res.error, `void function call must not error: ${res.error}`);
+}
+
+function testNotBindsLooserThanComparison() {
+  // `not a == b` must read as `not (a == b)`, not `(not a) == b`.
+  const source = `robot "Prec" version "1.0"
+meta { class: "ranger" }
+state { v: boolean = false }
+on tick {
+  set v = not 1 == 2
+}`;
+  const r = compile(source);
+  assert.ok(r.success, `compile failed: ${r.errors.join(", ")}`);
+  const vm = new VM(r.program, "robot_1", () => null);
+  vm.setConstants(r.constants);
+  vm.executeEvent("tick", null, 1);
+  assert.equal(vm.getState()[0], true, "not (1 == 2) should be true");
+}
+
+function testComparisonChainingRejected() {
+  const r = compile(`robot "Chain" version "1.0"
+on tick { let x = 1 < 2 < 3 }`);
+  assert.ok(!r.success, "chained comparison must be a compile error");
+}
+
 function testListIndexing() {
   const source = `robot "IdxTest" version "1.0"
 meta { class: "ranger" }
@@ -1777,6 +1819,9 @@ function run() {
     testForBreakDoesNotLeakIterator,
     testForReturnInHelperDoesNotLeakIterator,
     testTimersDoNotAccumulateInOnTick,
+    testVoidFunctionCalledAsStatement,
+    testNotBindsLooserThanComparison,
+    testComparisonChainingRejected,
     testBreakOutsideLoopErrors,
     testListIndexing,
     testStringConcatRuntime,

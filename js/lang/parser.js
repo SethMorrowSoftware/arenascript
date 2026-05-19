@@ -353,33 +353,41 @@ export class Parser {
     return { kind: "ContinueStatement", span };
   }
 
+  /**
+   * True when the current token starts a new statement (or ends the block),
+   * meaning the previous statement cannot consume it as an argument/value.
+   * The grammar is newline-insensitive, so this keyword set is what marks
+   * one statement ending and the next beginning.
+   */
+  #atStatementBoundary() {
+    const t = this.#current();
+    switch (t.type) {
+      case TokenType.RightBrace:
+      case TokenType.EOF:
+      case TokenType.Let:
+      case TokenType.Set:
+      case TokenType.If:
+      case TokenType.For:
+      case TokenType.While:
+      case TokenType.Break:
+      case TokenType.Continue:
+      case TokenType.Return:
+      case TokenType.On:
+      case TokenType.Fn:
+      case TokenType.After:
+      case TokenType.Every:
+        return true;
+      default:
+        return t.type === TokenType.Identifier && ACTION_KEYWORDS.has(t.value);
+    }
+  }
+
   #parseReturnStatement() {
     const span = this.#currentSpan();
     this.#expect(TokenType.Return);
     let value;
-    if (!this.#check(TokenType.RightBrace) && !this.#isAtEnd()) {
-      // Only parse value if next token looks like an expression start,
-      // not a statement-starting keyword
-      const next = this.#current();
-      if (
-        next.type !== TokenType.RightBrace &&
-        next.type !== TokenType.On &&
-        next.type !== TokenType.Fn &&
-        next.type !== TokenType.Let &&
-        next.type !== TokenType.Set &&
-        next.type !== TokenType.If &&
-        next.type !== TokenType.For &&
-        next.type !== TokenType.While &&
-        next.type !== TokenType.Break &&
-        next.type !== TokenType.Continue &&
-        next.type !== TokenType.After &&
-        next.type !== TokenType.Every &&
-        next.type !== TokenType.Return &&
-        next.type !== TokenType.EOF &&
-        !(next.type === TokenType.Identifier && ACTION_KEYWORDS.has(next.value))
-      ) {
-        value = this.#parseExpression();
-      }
+    if (!this.#atStatementBoundary()) {
+      value = this.#parseExpression();
     }
     return { kind: "ReturnStatement", value, span };
   }
@@ -389,26 +397,11 @@ export class Parser {
     const action = this.#advance().value;
     const args = [];
 
-    // Parse arguments until we hit a block end or statement boundary
-    while (
-      !this.#check(TokenType.RightBrace) &&
-      !this.#check(TokenType.EOF) &&
-      !this.#check(TokenType.Let) &&
-      !this.#check(TokenType.Set) &&
-      !this.#check(TokenType.If) &&
-      !this.#check(TokenType.For) &&
-      !this.#check(TokenType.While) &&
-      !this.#check(TokenType.Break) &&
-      !this.#check(TokenType.Continue) &&
-      !this.#check(TokenType.Return) &&
-      !this.#check(TokenType.On) &&
-      !this.#check(TokenType.Fn) &&
-      !this.#check(TokenType.After) &&
-      !this.#check(TokenType.Every) &&
-      !(this.#current().type === TokenType.Identifier && ACTION_KEYWORDS.has(this.#current().value))
-    ) {
+    // Actions take at most one argument. The grammar is newline-insensitive,
+    // so we greedily take a single leading value when one is present and
+    // treat whatever follows as the start of the next statement.
+    if (!this.#atStatementBoundary()) {
       args.push(this.#parseExpression());
-      break; // Most actions take 0 or 1 argument
     }
 
     return { kind: "ActionStatement", action, args, span };
@@ -454,14 +447,26 @@ export class Parser {
   }
 
   #parseAnd() {
-    let left = this.#parseComparison();
+    let left = this.#parseNot();
     while (this.#check(TokenType.And)) {
       const span = this.#currentSpan();
       this.#advance();
-      const right = this.#parseComparison();
+      const right = this.#parseNot();
       left = { kind: "BinaryExpr", operator: "and", left, right, span };
     }
     return left;
+  }
+
+  // `not` binds looser than comparison so `not a == b` reads as
+  // `not (a == b)` — the intuitive grouping — rather than `(not a) == b`.
+  #parseNot() {
+    if (this.#check(TokenType.Not)) {
+      const span = this.#currentSpan();
+      this.#advance();
+      const operand = this.#parseNot();
+      return { kind: "UnaryExpr", operator: "not", operand, span };
+    }
+    return this.#parseComparison();
   }
 
   #parseComparison() {
@@ -474,11 +479,16 @@ export class Parser {
       [TokenType.Greater]: ">",
       [TokenType.GreaterEqual]: ">=",
     };
-    while (this.#current().type in compOps) {
+    if (this.#current().type in compOps) {
       const span = this.#currentSpan();
       const operator = compOps[this.#advance().type];
       const right = this.#parseAddition();
       left = { kind: "ComparisonExpr", operator, left, right, span };
+      // Comparisons do not chain: `a < b < c` would compare a boolean
+      // against a number, which is almost always a mistake.
+      if (this.#current().type in compOps) {
+        throw this.#error("comparison operators cannot be chained — use 'and' (e.g. 'a < b and b < c')");
+      }
     }
     return left;
   }
@@ -512,12 +522,6 @@ export class Parser {
       this.#advance();
       const operand = this.#parseUnary();
       return { kind: "UnaryExpr", operator: "-", operand, span };
-    }
-    if (this.#check(TokenType.Not)) {
-      const span = this.#currentSpan();
-      this.#advance();
-      const operand = this.#parseUnary();
-      return { kind: "UnaryExpr", operator: "not", operand, span };
     }
     return this.#parseCallOrMember();
   }

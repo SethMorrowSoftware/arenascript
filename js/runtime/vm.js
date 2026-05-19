@@ -259,6 +259,11 @@ export class VM {
               const frame = this.callStack.pop();
               this.ip = frame.returnAddress;
               this.localBase = frame.localBase;
+              // Every user-function call must leave exactly one value on the
+              // stack — the compiler either consumes it or POPs it. A function
+              // with no explicit `return value` falls through to this opcode,
+              // so it yields null rather than underflowing the caller.
+              this.push(null);
             } else {
               return { actions: this.actions, budgetExceeded: false, instructionsUsed: _budgetStart - this.budget.instructions };
             }
