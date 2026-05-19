@@ -279,6 +279,48 @@ const PLAINS = {
 };
 
 // ============================================================================
+// Arena 6: THE NEXUS — Open free-for-all arena
+// ============================================================================
+// Built for battle royale. Four-fold rotationally symmetric so a ring of
+// combatants spawned around the perimeter is fair to everyone. An open field
+// with a central healing prize, a ring of pillar cover, and four depots —
+// also legal for standard 2-team play (spawn lanes are kept clear).
+const NEXUS = {
+  id: "nexus",
+  name: "The Nexus",
+  tagline: "Free-for-all · Open · Radial",
+  description:
+    "A four-fold symmetric free-for-all arena built for battle royale. "
+    + "Combatants ring the perimeter and converge on a central healing prize "
+    + "past two rings of pillar cover. Open sightlines and four depots reward "
+    + "mobility, target priority and never standing still.",
+  difficulty: "Free-for-all",
+  accent: "#ff4d8d",
+  recommendedModes: ["battle_royale", "squad_2v2"],
+  covers: [
+    // Inner pillar ring — cardinals
+    cover(70, 50, 4, 4),
+    cover(90, 70, 4, 4),
+    cover(70, 90, 4, 4),
+    cover(50, 70, 4, 4),
+    // Inner pillar ring — diagonals
+    cover(56, 56, 4, 4),
+    cover(84, 56, 4, 4),
+    cover(84, 84, 4, 4),
+    cover(56, 84, 4, 4),
+    // Outer cover blocks on the diagonals — break perimeter sightlines
+    cover(36, 36, 6, 6),
+    cover(104, 36, 6, 6),
+    cover(104, 104, 6, 6),
+    cover(36, 104, 6, 6),
+  ],
+  controlPoints: [cp(70, 70), cp(46, 46), cp(94, 46), cp(94, 94), cp(46, 94)],
+  healingZones: [heal(70, 70, 5.5)],
+  hazards: [],
+  depots: [depot(32, 70), depot(108, 70), depot(70, 32), depot(70, 108)],
+};
+
+// ============================================================================
 // Registry + accessors
 // ============================================================================
 
@@ -288,6 +330,7 @@ export const ARENA_PRESETS = {
   [FORTRESS.id]: FORTRESS,
   [GAUNTLET.id]: GAUNTLET,
   [PLAINS.id]: PLAINS,
+  [NEXUS.id]: NEXUS,
 };
 
 /** Ordered list used by UI so the selector is stable and deterministic. */
@@ -297,6 +340,7 @@ export const ARENA_PRESET_ORDER = [
   "fortress",
   "gauntlet",
   "plains",
+  "nexus",
 ];
 
 /**

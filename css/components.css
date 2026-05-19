@@ -244,6 +244,108 @@
   min-height: 80px;
 }
 
+/* ---- Team Builder: mode toggle + layouts ---- */
+
+#team-builder-modal .tb-modal-body {
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tb-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tb-mode-toggle {
+  display: inline-flex;
+  padding: 3px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.tb-mode-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tb-mode-btn:hover { color: var(--text-primary); }
+
+.tb-mode-btn.active {
+  background: var(--accent-cyan);
+  color: #001a22;
+  box-shadow: var(--shadow-glow-cyan);
+}
+
+.tb-controls-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.tb-mini-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tb-mini-btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(0, 212, 255, 0.3);
+  background: var(--accent-cyan-dim);
+}
+
+.tb-view[hidden] { display: none; }
+
+.tb-teams {
+  display: flex;
+  gap: 0;
+}
+
+/* ---- Team Builder: battle royale roster ---- */
+
+.tb-royale-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.tb-royale-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  min-height: 80px;
+}
+
+.tb-royale-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.tb-royale-grid .tb-empty {
+  grid-column: 1 / -1;
+}
+
 /* ---- Bot Card (Team Builder) ---- */
 
 .tb-bot-card {

@@ -68,6 +68,11 @@ export function runMatch(setup) {
 
   const matchParticipants = [];
 
+  // Determine the team layout up front so spawn placement can choose between
+  // opposing lanes (2 teams) and a fair perimeter ring (3+ teams / free-for-all).
+  const distinctTeamIds = [...new Set(setup.participants.map(p => p.teamId))].sort((a, b) => a - b);
+  const teamLayout = { ids: distinctTeamIds, isFFA: distinctTeamIds.length > 2 };
+
   const teamSpawnOrder = new Map();
 
   for (const participant of setup.participants) {
@@ -77,7 +82,7 @@ export function runMatch(setup) {
 
     for (let squadIndex = 0; squadIndex < squadSize; squadIndex++) {
       const teamIndex = teamSpawnOrder.get(participant.teamId) ?? 0;
-      const spawnPosition = getSpawnPositionForTeam(world, participant.teamId, teamIndex);
+      const spawnPosition = getSpawnPositionForTeam(world, participant.teamId, teamIndex, teamLayout);
       teamSpawnOrder.set(participant.teamId, teamIndex + 1);
       const squadRole = roles.length > 0 ? roles[squadIndex % roles.length] : null;
 
@@ -516,12 +521,33 @@ function updateDiscovery(world) {
   }
 }
 
-function getSpawnPositionForTeam(world, teamId, teamMemberIndex) {
+function getSpawnPositionForTeam(world, teamId, teamMemberIndex, teamLayout) {
   const { arenaWidth: w, arenaHeight: h } = world.config;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // Free-for-all (3+ teams): place every team on a fair ring around the
+  // arena centre. Pure trigonometry — no RNG — so replays stay deterministic.
+  if (teamLayout && teamLayout.isFFA) {
+    const ids = teamLayout.ids;
+    const slot = Math.max(0, ids.indexOf(teamId));
+    const count = Math.max(1, ids.length);
+    const radius = Math.min(w, h) * 0.37;
+    // Start at the top and step clockwise; multi-member teams fan slightly.
+    const angle = (slot / count) * Math.PI * 2 - Math.PI / 2
+      + teamMemberIndex * 0.07;
+    return vec2(
+      Math.max(6, Math.min(w - 6, cx + Math.cos(angle) * radius)),
+      Math.max(6, Math.min(h - 6, cy + Math.sin(angle) * radius)),
+    );
+  }
+
+  // Standard 2-team match: opposing spawn lanes on the left and right.
   const laneOffsets = [-12, -6, 0, 6, 12];
   const laneOffset = laneOffsets[teamMemberIndex % laneOffsets.length];
-  const x = teamId % 2 === 0 ? w * 0.10 : w * 0.90;
-  const y = Math.max(6, Math.min(h - 6, (h * 0.50) + laneOffset));
+  const teamSlot = teamLayout ? Math.max(0, teamLayout.ids.indexOf(teamId)) : (teamId % 2);
+  const x = teamSlot === 0 ? w * 0.10 : w * 0.90;
+  const y = Math.max(6, Math.min(h - 6, cy + laneOffset));
   return vec2(x, y);
 }
 

@@ -1770,6 +1770,7 @@ const btnTbCancel = document.getElementById("btn-tb-cancel");
 const btnTbRun = document.getElementById("btn-tb-run");
 const tbAllySlots = document.getElementById("tb-ally-slots");
 const tbEnemySlots = document.getElementById("tb-enemy-slots");
+const tbRoyaleSlots = document.getElementById("tb-royale-slots");
 const tbMatchInfo = document.getElementById("tb-match-info");
 
 // Match-live mode elements
@@ -1827,6 +1828,11 @@ let matchLiveMode = false;
 let matchLiveParticipants = null;
 let matchHudRows = new Map();   // robotId -> { row, fill, text } for live HP bars
 let matchIntroTimer = null;     // pending timeout that dismisses the intro splash
+let matchIsFFA = false;         // true for battle royale (3+ teams)
+let matchFieldSize = 0;         // total combatant count of the current match
+let matchEliminations = [];     // [{frameIndex,tick,name,teamId,isPlayer}] in death order
+let matchParticipantMeta = new Map(); // robotId -> {name,teamId,cls,isPlayer}
+let ffaHudRefs = null;          // cached battle-royale HUD element references
 
 // Currently selected arena preset id (used for next match)
 let currentArenaId = DEFAULT_ARENA_ID;
@@ -2464,85 +2470,107 @@ function doCompile() {
 // Match Execution
 // ============================================================================
 
+// Match mode definitions. `perTeam` drives the 2-team modes; `ffa` + `fieldSize`
+// drive battle royale. The mode key is also passed through to the engine config.
+const MATCH_MODES = {
+  duel_1v1:      { label: "1v1 Duel",      perTeam: 1 },
+  squad_2v2:     { label: "2v2 Squad",     perTeam: 2 },
+  team_3v3:      { label: "3v3 Team",      perTeam: 3 },
+  team_4v4:      { label: "4v4 Team",      perTeam: 4 },
+  team_5v5:      { label: "5v5 Team",      perTeam: 5 },
+  battle_royale: { label: "Battle Royale", ffa: true, fieldSize: 12 },
+};
+
+// Curated preset pool for auto-filling rosters — skips the tutorial-trivial
+// bots so auto-filled opponents actually put up a fight.
+const AUTOFILL_POOL = [
+  "bruiser", "kiter", "fortress", "healer", "flanker", "sentinel",
+  "hivemind", "phantom", "warden", "overclock", "oracle", "zealot", "predator",
+];
+
+/** The currently-selected quick-match mode (falls back to a duel). */
+function getMatchMode() {
+  const v = matchModeSelect?.value;
+  return MATCH_MODES[v] ? v : "duel_1v1";
+}
+
 async function doRunMatch() {
   if (!compiledPlayer) {
     logToConsole("Compile your bot first.", "warn");
     return;
   }
 
-  const oppKey = opponentSelect.value;
-  const oppPreset = getBotEntry(oppKey);
-  if (!oppPreset) {
-    logToConsole("Invalid opponent selection.", "error");
-    return;
-  }
+  const mode = getMatchMode();
+  const spec = MATCH_MODES[mode];
+  const seed = getMatchSeed();
 
-  logToConsole(`\n--- Match: You vs ${oppPreset.name} ---`, "event");
-  arenaStatus.textContent = "Running...";
+  // --- Assemble the roster -------------------------------------------------
+  const participants = [];
+  const shareParticipants = [];
+  const usedNames = new Set(["you"]);
 
-  let oppResult;
-  try {
-    oppResult = compile(oppPreset.source);
-  } catch (e) {
-    logToConsole(`Failed to compile opponent: ${e.message}`, "error");
-    arenaStatus.textContent = "Error";
-    return;
-  }
+  // Allocate a unique, display-friendly name (the engine rejects duplicates).
+  const uniqueName = (base) => {
+    let name = base, n = 2;
+    while (usedNames.has(name.toLowerCase())) name = `${base} ${n++}`;
+    usedNames.add(name.toLowerCase());
+    return name;
+  };
 
-  if (!oppResult.success) {
-    logToConsole(`Opponent "${oppPreset.name}" failed: ${oppResult.errors.join(", ")}`, "error");
-    arenaStatus.textContent = "Error";
-    return;
-  }
-
-  const mode = matchModeSelect?.value === "squad_2v2" ? "squad_2v2" : "duel_1v1";
-  const participants = [
-    {
-      program: compiledPlayer.program,
-      constants: compiledPlayer.constants,
-      playerId: "player",
-      teamId: 0,
-    },
-  ];
-
-  if (mode === "squad_2v2") {
-    const allyPreset = BOT_PRESETS.healer;
-    const allyCompiled = compile(allyPreset.source);
-    if (!allyCompiled.success) {
-      logToConsole("Default ally failed to compile.", "error");
-      arenaStatus.textContent = "Error";
-      return;
-    }
-    participants.push({
-      program: allyCompiled.program,
-      constants: allyCompiled.constants,
-      playerId: allyPreset.name.toLowerCase(),
-      teamId: 0,
-    });
-  }
-
+  // The player's compiled editor bot always anchors team 0.
   participants.push({
-    program: oppResult.program,
-    constants: oppResult.constants,
-    playerId: oppPreset.name.toLowerCase(),
-    teamId: 1,
+    program: compiledPlayer.program, constants: compiledPlayer.constants,
+    playerId: "player", teamId: 0,
   });
+  shareParticipants.push({ source: editorEl.value, teamId: 0 });
 
-  if (mode === "squad_2v2") {
-    const enemyPartnerPreset = BOT_PRESETS.fortress;
-    const enemyPartnerCompiled = compile(enemyPartnerPreset.source);
-    if (!enemyPartnerCompiled.success) {
-      logToConsole("Enemy partner failed to compile.", "error");
-      arenaStatus.textContent = "Error";
-      return;
-    }
+  // Compile a preset onto a team; logs + returns false on failure.
+  const addPreset = (botKey, teamId) => {
+    const entry = getBotEntry(botKey);
+    if (!entry) { logToConsole(`Unknown bot "${botKey}".`, "error"); return false; }
+    let res;
+    try { res = compile(entry.source); }
+    catch (e) { logToConsole(`${entry.name} failed: ${e.message}`, "error"); return false; }
+    if (!res.success) { logToConsole(`${entry.name} failed to compile.`, "error"); return false; }
     participants.push({
-      program: enemyPartnerCompiled.program,
-      constants: enemyPartnerCompiled.constants,
-      playerId: enemyPartnerPreset.name.toLowerCase(),
-      teamId: 1,
+      program: res.program, constants: res.constants,
+      playerId: uniqueName(entry.name), teamId,
     });
+    shareParticipants.push({ preset: botKey, teamId });
+    return true;
+  };
+
+  const oppKey = opponentSelect?.value || "kiter";
+
+  if (spec.ffa) {
+    // Battle royale: player + (fieldSize - 1) rivals, each its own team.
+    for (let i = 1; i < spec.fieldSize; i++) {
+      const key = AUTOFILL_POOL[(seed + i * 7) % AUTOFILL_POOL.length];
+      if (!addPreset(key, i)) { arenaStatus.textContent = "Error"; return; }
+    }
+  } else {
+    const n = spec.perTeam;
+    // Enemy team (1): the dropdown pick leads, the rest auto-fill.
+    if (!addPreset(oppKey, 1)) { arenaStatus.textContent = "Error"; return; }
+    for (let i = 1; i < n; i++) {
+      const key = AUTOFILL_POOL[(seed + i * 5) % AUTOFILL_POOL.length];
+      if (!addPreset(key, 1)) { arenaStatus.textContent = "Error"; return; }
+    }
+    // Ally team (0): auto-fill alongside the player.
+    for (let i = 1; i < n; i++) {
+      const key = AUTOFILL_POOL[(seed + i * 11 + 3) % AUTOFILL_POOL.length];
+      if (!addPreset(key, 0)) { arenaStatus.textContent = "Error"; return; }
+    }
   }
+
+  const arenaId = getMatchArenaId();
+  const matchLabel = spec.ffa
+    ? `Battle Royale · ${participants.length} bots`
+    : (spec.perTeam === 1 ? `You vs ${getBotEntry(oppKey)?.name ?? "opponent"}`
+                          : `${spec.perTeam}v${spec.perTeam} on ${getArenaPreset(arenaId).name}`);
+
+  logToConsole(`\n--- ${spec.label}: ${matchLabel} ---`, "event");
+  arenaStatus.textContent = "Running...";
 
   const setup = {
     config: {
@@ -2551,16 +2579,15 @@ async function doRunMatch() {
       arenaHeight: ARENA_HEIGHT,
       maxTicks: 3000,
       tickRate: 30,
-      seed: getMatchSeed(),
-      arenaId: getMatchArenaId(),
+      seed,
+      arenaId,
     },
     participants,
   };
 
   // Show the loading overlay, yield to the browser so it paints, then run
-  // the (synchronous) match. This makes the simulation feel responsive
-  // for longer matches and gives us a place to report progress.
-  showMatchLoading("Simulating match…", `You vs ${oppPreset.name}`);
+  // the (synchronous) match. This keeps long simulations feeling responsive.
+  showMatchLoading("Simulating match…", matchLabel);
   await nextFrame();
 
   let result;
@@ -2580,38 +2607,27 @@ async function doRunMatch() {
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
 
-  // Capture the share bundle: editor source on team 0, opponent preset on
-  // team 1. Squad mode default ally/enemy pair is reconstructable by preset
-  // key, so no extra source is stored for them. Players import this via
-  // `#match=asv1:...` to reproduce the exact fight.
-  const shareParticipants = [{ source: editorEl.value, teamId: 0 }];
-  if (mode === "squad_2v2") shareParticipants.push({ preset: "healer", teamId: 0 });
-  shareParticipants.push({ preset: oppKey, teamId: 1 });
-  if (mode === "squad_2v2") shareParticipants.push({ preset: "fortress", teamId: 1 });
+  // Capture the share bundle so players can reproduce the exact fight via a
+  // `#match=asv1:...` link. The editor source rides on team 0; every
+  // auto-filled bot is reconstructable by its preset key.
   lastMatchBundle = buildMatchBundle(setup, shareParticipants);
   if (btnShareMatch) btnShareMatch.disabled = false;
 
+  const arenaLabel = result.replay?.metadata?.arenaName ?? arenaId ?? "unknown";
   const winnerLabel =
     result.winner === null ? "DRAW" :
-    result.winner === 0 ? "Your Bot" : oppPreset.name;
-
-  const arenaLabel = result.replay?.metadata?.arenaName ?? setup.config.arenaId ?? "unknown";
-  logToConsole(`Winner: ${winnerLabel}  |  ${result.reason}  |  ${result.tickCount} ticks  |  arena: ${arenaLabel}  |  seed: ${setup.config.seed}`, "success");
-
-  for (const [id, stats] of result.robotStats) {
-    logToConsole(`  ${id}: dmg=${stats.damageDealt}  taken=${stats.damageTaken}  kills=${stats.kills}`, "stat");
-  }
+    result.winner === 0 ? "You" : "Opponents";
+  logToConsole(`Winner: ${winnerLabel}  |  ${result.reason}  |  ${result.tickCount} ticks  |  arena: ${arenaLabel}  |  seed: ${seed}`, "success");
   flushBotLogs(result.botLogs);
 
-  // Record to the local match history so users can scroll back through
-  // their recent runs. Stored in localStorage; wiped via a header button.
+  // Record to the local match history.
   try {
     recordMatchHistory({
       you: compiledPlayer.program?.robotName ?? "Your Bot",
-      opponent: oppPreset.name,
+      opponent: matchLabel,
       arena: arenaLabel,
       mode,
-      seed: setup.config.seed,
+      seed,
       ticks: result.tickCount,
       winnerTeam: result.winner,
       youWon: result.winner === 0,
@@ -2619,8 +2635,9 @@ async function doRunMatch() {
     });
   } catch (e) { /* non-fatal */ }
 
-  showMatchResults(result, oppPreset.name);
-  startReplay(result, oppPreset.name);
+  const oppName = spec.perTeam === 1 ? (getBotEntry(oppKey)?.name ?? null) : null;
+  showMatchResults(result, oppName);
+  startReplay(result, oppName);
   refreshMatchHistoryPanel();
 }
 
@@ -2880,12 +2897,34 @@ function doCompileAndRun() {
 // Match Results Display
 // ============================================================================
 
+/**
+ * Scan replay frames for the first frame each robot drops, returning death
+ * order earliest-first. Drives the kill feed and battle-royale placement.
+ */
+function computeEliminationOrder(frames) {
+  const deathFrame = new Map();
+  for (let fi = 0; fi < frames.length; fi++) {
+    for (const r of frames[fi].robots) {
+      if (!deathFrame.has(r.id) && r.health <= 0) deathFrame.set(r.id, fi);
+    }
+  }
+  return [...deathFrame.entries()]
+    .map(([robotId, fi]) => ({ robotId, frameIndex: fi, tick: frames[fi]?.tick ?? 0 }))
+    .sort((a, b) => a.frameIndex - b.frameIndex);
+}
+
 function showMatchResults(result, opponentName) {
   // The scorecard is built here but stays hidden until the replay finishes —
   // revealMatchResults() / syncResultsToFrame() control when it appears.
-  const isDraw = result.winner === null;
-
   const participants = result.replay.metadata?.participants ?? [];
+
+  // Battle royale gets a placement-based scorecard instead of a team comparison.
+  if (new Set(participants.map(p => p.teamId)).size > 2) {
+    showFfaResults(result, participants);
+    return;
+  }
+
+  const isDraw = result.winner === null;
   const robotToTeam = new Map(participants.map((p) => [p.robotId, p.teamId]));
   const teamTotals = new Map([[0, { hp: 0, dmg: 0, kills: 0 }], [1, { hp: 0, dmg: 0, kills: 0 }]]);
 
@@ -2978,6 +3017,86 @@ function showMatchResults(result, opponentName) {
       </div>`;
     }
     resultsRobotDetailEl.innerHTML = robotHtml;
+  }
+}
+
+/** Battle-royale scorecard: the player's placement, run stats, and a podium. */
+function showFfaResults(result, participants) {
+  const frames = result.replay.frames;
+  const lastFrame = frames[frames.length - 1];
+  const order = computeEliminationOrder(frames);
+  const fieldSize = participants.length;
+
+  const nameByRobot = new Map(
+    participants.map(p => [p.robotId, prettyParticipantName(p.playerId)]),
+  );
+  const player = participants.find(p => p.teamId === 0 && p.playerId === "player");
+  const playerRobotId = player?.robotId ?? null;
+
+  // Placement: 1st = survivor, last = first eliminated.
+  const playerElimIdx = order.findIndex(e => e.robotId === playerRobotId);
+  const won = result.winner === 0;
+  const placement = playerElimIdx === -1
+    ? (won ? 1 : 2)
+    : fieldSize - playerElimIdx;
+
+  // Survivor + runners-up form a small podium (winner, then last to fall).
+  const winnerRobotId = participants.find(p => p.teamId === result.winner)?.robotId ?? null;
+  const podium = [];
+  if (winnerRobotId) podium.push({ rank: 1, robotId: winnerRobotId });
+  for (let i = order.length - 1, rank = 2; i >= 0 && rank <= 3; i--, rank++) {
+    podium.push({ rank, robotId: order[i].robotId });
+  }
+
+  const playerStats = playerRobotId ? result.robotStats.get(playerRobotId) : null;
+  const kills = playerStats?.kills ?? 0;
+  const dmg = playerStats?.damageDealt ?? 0;
+  const survivedTick = playerElimIdx === -1
+    ? (lastFrame?.tick ?? result.tickCount)
+    : order[playerElimIdx].tick;
+
+  const arenaName = result.replay?.metadata?.arenaName ?? "Arena";
+  const outcome = won ? "win" : "loss";
+  const ordinal = (n) => {
+    const s = ["th", "st", "nd", "rd"], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+  const outcomeLabel = won ? "Victory Royale" : `${ordinal(placement)} place`;
+  const detail = won
+    ? `Last bot standing of ${fieldSize}`
+    : `Eliminated · outlasted ${fieldSize - placement} of ${fieldSize - 1} rivals`;
+
+  resultsContentEl.innerHTML = `
+    <div class="result-banner result-banner-${outcome}">
+      <span class="result-banner-outcome">${escapeHtml(outcomeLabel)}</span>
+      <span class="result-banner-detail">${escapeHtml(detail)}</span>
+    </div>
+    <div class="result-meta">
+      <span class="result-meta-arena">${escapeHtml(arenaName)}</span>
+      <span class="result-meta-sep">&middot;</span>
+      <span>Battle Royale</span>
+      <span class="result-meta-sep">&middot;</span>
+      <span>${result.tickCount} ticks</span>
+    </div>
+    <div class="result-br-stats">
+      <div class="result-br-stat"><span class="result-br-stat-v">${ordinal(placement)}</span><span class="result-br-stat-l">Placement</span></div>
+      <div class="result-br-stat"><span class="result-br-stat-v">${kills}</span><span class="result-br-stat-l">Kills</span></div>
+      <div class="result-br-stat"><span class="result-br-stat-v">${dmg}</span><span class="result-br-stat-l">Damage</span></div>
+      <div class="result-br-stat"><span class="result-br-stat-v">${survivedTick}</span><span class="result-br-stat-l">Survived</span></div>
+    </div>
+  `;
+
+  if (resultsRobotDetailEl) {
+    let html = '<div class="result-robot-header">Podium</div>';
+    for (const slot of podium) {
+      const isYou = slot.robotId === playerRobotId;
+      html += `<div class="result-robot-row${isYou ? " is-you" : ""}">
+        <span class="result-podium-rank rank-${slot.rank}">${slot.rank}</span>
+        <span class="result-robot-name">${escapeHtml(nameByRobot.get(slot.robotId) ?? "Bot")}</span>
+        <span class="result-robot-stat">${isYou ? "That's you" : ""}</span>
+      </div>`;
+    }
+    resultsRobotDetailEl.innerHTML = html;
   }
 }
 
@@ -3579,9 +3698,14 @@ function drawFrame(frame, labels, prevFrame) {
     const maxEnergy = classStats?.energy || 100;
     const maxAmmo = classStats?.maxAmmo || 0;
     const isAlive = r.health > 0;
+    // In a free-for-all every bot is its own team; render the player in the
+    // friendly colour and the whole field as hostiles, and only label the
+    // player so 20-bot fights stay readable.
+    const colorTeam = matchIsFFA ? (r.teamId === 0 ? 0 : 1) : r.teamId;
+    const label = matchIsFFA && r.teamId !== 0 ? "" : (labels[r.id] || r.id);
     drawRobot(
       r.position.x, r.position.y, r.health, maxHP, r.energy, maxEnergy,
-      r.teamId, labels[r.id] || r.id, isAlive, r.action, r.robotClass,
+      colorTeam, label, isAlive, r.action, r.robotClass,
       {
         heat: r.heat,
         ammo: r.ammo,
@@ -3840,26 +3964,130 @@ function prettyParticipantName(playerId) {
 function initMatchBroadcast(result) {
   const meta = result?.replay?.metadata ?? {};
   const participants = meta.participants ?? [];
-  const frame0 = replayData?.[0];
+  const frames = replayData ?? [];
+  const frame0 = frames[0];
 
   // Map robotId -> class, pulled from the first replay frame.
   const classById = new Map();
   for (const r of frame0?.robots ?? []) classById.set(r.id, r.robotClass);
 
+  // A match is free-for-all when there are 3+ distinct teams (battle royale).
+  matchIsFFA = new Set(participants.map(p => p.teamId)).size > 2;
+  matchFieldSize = participants.length;
+
+  // robotId -> display metadata, used by the HUD, kill feed and results.
+  matchParticipantMeta = new Map();
+  for (const p of participants) {
+    matchParticipantMeta.set(p.robotId, {
+      name: prettyParticipantName(p.playerId),
+      teamId: p.teamId,
+      cls: classById.get(p.robotId) || "brawler",
+      isPlayer: p.teamId === 0 && p.playerId === "player",
+    });
+  }
+
+  // Precompute elimination order by scanning every frame for the first tick a
+  // robot is down. Robust (does not depend on event emission) and drives both
+  // the live kill feed and final placement.
+  const deathFrame = new Map();
+  for (let fi = 0; fi < frames.length; fi++) {
+    for (const r of frames[fi].robots) {
+      if (!deathFrame.has(r.id) && r.health <= 0) deathFrame.set(r.id, fi);
+    }
+  }
+  matchEliminations = [...deathFrame.entries()]
+    .map(([robotId, fi]) => {
+      const m = matchParticipantMeta.get(robotId) ?? {};
+      return {
+        robotId, frameIndex: fi, tick: frames[fi]?.tick ?? 0,
+        name: m.name ?? "Bot", teamId: m.teamId ?? -1, isPlayer: !!m.isPlayer,
+      };
+    })
+    .sort((a, b) => a.frameIndex - b.frameIndex);
+
+  matchHudRows.clear();
+  ffaHudRefs = null;
+  matchScoreboard?.classList.toggle("is-ffa", matchIsFFA);
+  matchIntroEl?.classList.toggle("is-ffa", matchIsFFA);
+
+  if (matchIsFFA) {
+    initFfaBroadcast(meta, participants, classById);
+  } else {
+    initTeamBroadcast(meta, participants, classById);
+  }
+}
+
+/** Build the broadcast overlay for a standard 2-team match. */
+function initTeamBroadcast(meta, participants, classById) {
   const team0 = participants.filter(p => p.teamId === 0);
   const team1 = participants.filter(p => p.teamId === 1);
-  const name0 = team0.map(p => prettyParticipantName(p.playerId)).join(" & ") || "Blue Team";
-  const name1 = team1.map(p => prettyParticipantName(p.playerId)).join(" & ") || "Red Team";
+  // Personal names for solo/duo teams; a team label once a squad gets large.
+  const nameFor = (team, fallback) => team.length === 1
+    ? prettyParticipantName(team[0].playerId)
+    : (team.length === 2 ? team.map(p => prettyParticipantName(p.playerId)).join(" & ") : fallback);
+  const name0 = nameFor(team0, "Blue Team");
+  const name1 = nameFor(team1, "Red Team");
 
   if (scoreboardTeam0) scoreboardTeam0.textContent = name0;
   if (scoreboardTeam1) scoreboardTeam1.textContent = name1;
   if (scoreboardArena) scoreboardArena.textContent = meta.arenaName ?? "Arena";
 
-  matchHudRows.clear();
   buildMatchHudTeam(matchHudTeam0, team0, classById, 0);
   buildMatchHudTeam(matchHudTeam1, team1, classById, 1);
 
-  showMatchIntro(name0, name1, meta.arenaName ?? "Arena");
+  showMatchIntro(name0, name1, meta.arenaName ?? "Arena", false);
+}
+
+/** Build the broadcast overlay for a battle royale (free-for-all). */
+function initFfaBroadcast(meta, participants, classById) {
+  if (scoreboardTeam0) scoreboardTeam0.textContent = "Battle Royale";
+  if (scoreboardTeam1) scoreboardTeam1.textContent = `${matchFieldSize} alive`;
+  if (scoreboardArena) scoreboardArena.textContent = meta.arenaName ?? "Arena";
+
+  const player = participants.find(p => p.teamId === 0 && p.playerId === "player");
+  const playerCls = (player && classById.get(player.robotId)) || "brawler";
+
+  if (matchHudTeam0) {
+    matchHudTeam0.innerHTML = `
+      <div class="br-hud-panel">
+        <div class="br-hud-title">Battle Royale</div>
+        <div class="br-hud-alive">
+          <span class="br-hud-alive-n">${matchFieldSize}</span>
+          <span class="br-hud-alive-label">still standing<br>of ${matchFieldSize} combatants</span>
+        </div>
+        <div class="hud-bot br-hud-you">
+          <div class="hud-bot-top">
+            <div class="hud-bot-icon ${escapeHtml(playerCls)}">${escapeHtml(playerCls.charAt(0).toUpperCase())}</div>
+            <div class="hud-bot-id">
+              <span class="hud-bot-name">You</span>
+              <span class="hud-bot-class">${escapeHtml(playerCls)}</span>
+            </div>
+          </div>
+          <div class="hud-bot-hp">
+            <div class="hud-bot-hp-track"><div class="hud-bot-hp-fill"></div></div>
+            <span class="hud-bot-hp-text">--</span>
+            <span class="hud-bot-down-tag">Eliminated</span>
+          </div>
+        </div>
+      </div>`;
+  }
+  if (matchHudTeam1) {
+    matchHudTeam1.innerHTML = `
+      <div class="br-feed-panel">
+        <div class="br-feed-title">Eliminations</div>
+        <div class="br-feed-list"></div>
+      </div>`;
+  }
+  ffaHudRefs = {
+    aliveN: matchHudTeam0?.querySelector(".br-hud-alive-n") ?? null,
+    youRow: matchHudTeam0?.querySelector(".br-hud-you") ?? null,
+    youFill: matchHudTeam0?.querySelector(".br-hud-you .hud-bot-hp-fill") ?? null,
+    youText: matchHudTeam0?.querySelector(".br-hud-you .hud-bot-hp-text") ?? null,
+    feed: matchHudTeam1?.querySelector(".br-feed-list") ?? null,
+    playerRobotId: player?.robotId ?? null,
+  };
+
+  showMatchIntro("Battle Royale", `${matchFieldSize} combatants`, meta.arenaName ?? "Arena", true);
 }
 
 /** Render one team's roster of combatant cards into the given HUD container. */
@@ -3903,19 +4131,50 @@ function buildMatchHudTeam(container, members, classById, teamId) {
   }
 }
 
-/** Update every combatant card's HP bar from the current replay frame. */
+/** Apply an HP percentage + tier classes to one HP-bar fill element. */
+function applyHpBar(fill, text, robot) {
+  const maxHp = CLASS_STATS[robot.robotClass]?.health || 100;
+  const hp = Math.max(0, Math.round(robot.health));
+  const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  if (fill) {
+    fill.style.width = pct + "%";
+    fill.classList.toggle("hp-low", pct > 0 && pct <= 25);
+    fill.classList.toggle("hp-mid", pct > 25 && pct <= 55);
+  }
+  if (text) text.textContent = String(hp);
+}
+
+/** Update the live HUD (team rosters, or the battle-royale panels) per frame. */
 function updateMatchHud(frame) {
-  if (!matchLiveMode || !frame || !frame.robots || matchHudRows.size === 0) return;
+  if (!matchLiveMode || !frame || !frame.robots) return;
+
+  if (matchIsFFA) {
+    if (!ffaHudRefs) return;
+    const aliveCount = frame.robots.reduce((n, r) => n + (r.health > 0 ? 1 : 0), 0);
+    if (ffaHudRefs.aliveN) ffaHudRefs.aliveN.textContent = String(aliveCount);
+    const you = frame.robots.find(r => r.id === ffaHudRefs.playerRobotId);
+    if (you) {
+      applyHpBar(ffaHudRefs.youFill, ffaHudRefs.youText, you);
+      ffaHudRefs.youRow?.classList.toggle("is-down", you.health <= 0);
+    }
+    if (ffaHudRefs.feed) {
+      const recent = matchEliminations.filter(e => e.tick <= frame.tick).slice(-7).reverse();
+      ffaHudRefs.feed.innerHTML = recent.length
+        ? recent.map(e =>
+            `<div class="br-feed-row${e.isPlayer ? " is-you" : ""}">`
+            + `<span class="br-feed-skull">☠</span>`
+            + `<span class="br-feed-name">${escapeHtml(e.name)}</span>`
+            + `<span class="br-feed-tick">t${e.tick}</span></div>`).join("")
+        : `<div class="br-feed-empty">No eliminations yet</div>`;
+    }
+    return;
+  }
+
+  if (matchHudRows.size === 0) return;
   for (const r of frame.robots) {
     const row = matchHudRows.get(r.id);
     if (!row) continue;
-    const maxHp = CLASS_STATS[r.robotClass]?.health || 100;
-    const hp = Math.max(0, Math.round(r.health));
-    const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
-    row.fill.style.width = pct + "%";
-    row.text.textContent = String(hp);
-    row.fill.classList.toggle("hp-low", pct > 0 && pct <= 25);
-    row.fill.classList.toggle("hp-mid", pct > 25 && pct <= 55);
+    applyHpBar(row.fill, row.text, r);
     row.row.classList.toggle("is-down", r.health <= 0 || r.alive === false);
   }
 }
@@ -3924,15 +4183,20 @@ function clearMatchHud() {
   if (matchHudTeam0) matchHudTeam0.innerHTML = "";
   if (matchHudTeam1) matchHudTeam1.innerHTML = "";
   matchHudRows.clear();
+  ffaHudRefs = null;
+  matchScoreboard?.classList.remove("is-ffa");
+  matchIntroEl?.classList.remove("is-ffa");
 }
 
-/** Play the cinematic VS intro splash; auto-dismisses when the animation ends. */
-function showMatchIntro(name0, name1, arenaName) {
+/** Play the cinematic intro splash; auto-dismisses when the animation ends. */
+function showMatchIntro(name0, name1, arenaName, isFfa) {
   if (!matchIntroEl) return;
   if (matchIntroTimer) { clearTimeout(matchIntroTimer); matchIntroTimer = null; }
   if (matchIntroTeam0) matchIntroTeam0.textContent = name0;
   if (matchIntroTeam1) matchIntroTeam1.textContent = name1;
-  if (matchIntroArena) matchIntroArena.textContent = arenaName;
+  if (matchIntroArena) {
+    matchIntroArena.textContent = isFfa ? `${name1} · ${arenaName}` : arenaName;
+  }
   matchIntroEl.hidden = false;
   // Restart the CSS animation by forcing a reflow between class toggles.
   matchIntroEl.classList.remove("playing");
@@ -3954,9 +4218,13 @@ function hideMatchIntro() {
 }
 
 function updateScoreboard(frame) {
-  if (!matchLiveMode || !frame || !scoreboardTick) return;
+  if (!matchLiveMode || !frame) return;
   const totalTicks = replayData?.[replayData.length - 1]?.tick ?? 0;
-  scoreboardTick.textContent = `Tick ${frame.tick} / ${totalTicks}`;
+  if (scoreboardTick) scoreboardTick.textContent = `Tick ${frame.tick} / ${totalTicks}`;
+  if (matchIsFFA && scoreboardTeam1) {
+    const aliveCount = frame.robots.reduce((n, r) => n + (r.health > 0 ? 1 : 0), 0);
+    scoreboardTeam1.textContent = `${aliveCount} alive`;
+  }
 }
 
 /** Reveal the match results scorecard (called when the replay finishes). */
@@ -4491,10 +4759,14 @@ function isFieldInFocus(el) {
 }
 
 // ============================================================================
-// Team Builder (Modal)
+// Team Builder (Modal) — 2-team battles up to 5v5, plus battle royale rosters
 // ============================================================================
 
-const MAX_TEAM_SLOTS = 4;
+const MAX_TEAM_SLOTS = 5;
+const MAX_ROYALE_SLOTS = 20;
+
+let tbMode = "team";          // "team" | "royale"
+let tbLastFocusedElement = null;
 
 const BOT_ICONS = {
   bruiser: "B", kiter: "K", fortress: "F",
@@ -4502,10 +4774,10 @@ const BOT_ICONS = {
 };
 
 function botIconLetter(key) {
+  if (key === "__editor__") return "★"; // star — the player's own bot
   if (BOT_ICONS[key]) return BOT_ICONS[key];
   const entry = getBotEntry(key);
   if (!entry) return "?";
-  // For user bots: use first letter of name, uppercased
   return (entry.name?.charAt(0) || "U").toUpperCase();
 }
 
@@ -4513,25 +4785,39 @@ function tbGetBotClass(key) {
   return getBotEntry(key)?.class ?? "brawler";
 }
 
+/** The slot container for a roster ("ally" | "enemy" | "royale"). */
+function tbContainerFor(team) {
+  if (team === "ally") return tbAllySlots;
+  if (team === "enemy") return tbEnemySlots;
+  return tbRoyaleSlots;
+}
+
+function tbCountCards(container) {
+  return container?.querySelectorAll(".tb-bot-card").length ?? 0;
+}
+
+/** A varied auto-fill preset key for slot index `i`. */
+function tbAutofillKey(i) {
+  return AUTOFILL_POOL[((i % AUTOFILL_POOL.length) + AUTOFILL_POOL.length) % AUTOFILL_POOL.length];
+}
+
 function tbCreateBotCard(team, botKey) {
-  const preset = getBotEntry(botKey);
-  const cls = preset?.class ?? "brawler";
+  const entry = getBotEntry(botKey);
+  const cls = entry?.class ?? "brawler";
   const card = document.createElement("div");
   card.className = "tb-bot-card";
   card.dataset.team = team;
 
-  const options = buildBotSelectOptions(botKey);
-
-  // `cls` is already validated against a whitelist upstream, but escape it
-  // defensively so that a corrupted localStorage entry can never inject HTML.
+  // `cls` is whitelisted upstream but escape defensively against a corrupted
+  // localStorage entry injecting HTML.
   const safeCls = escapeHtml(cls);
   card.innerHTML = `
     <div class="tb-card-icon ${safeCls}">${escapeHtml(botIconLetter(botKey))}</div>
     <div class="tb-card-body">
-      <select class="tb-card-select">${options}</select>
+      <select class="tb-card-select">${buildBotSelectOptions(botKey, true)}</select>
       <span class="tb-card-class">${safeCls}</span>
     </div>
-    <button class="tb-remove-btn" title="Remove">&times;</button>`;
+    <button class="tb-remove-btn" type="button" title="Remove">&times;</button>`;
 
   const select = card.querySelector(".tb-card-select");
   const icon = card.querySelector(".tb-card-icon");
@@ -4554,10 +4840,10 @@ function tbCreateBotCard(team, botKey) {
 }
 
 function tbUpdateEmptyStates() {
-  for (const container of [tbAllySlots, tbEnemySlots]) {
+  for (const container of [tbAllySlots, tbEnemySlots, tbRoyaleSlots]) {
     if (!container) continue;
     const existing = container.querySelector(".tb-empty");
-    if (container.querySelectorAll(".tb-bot-card").length === 0) {
+    if (tbCountCards(container) === 0) {
       if (!existing) {
         const empty = document.createElement("div");
         empty.className = "tb-empty";
@@ -4571,18 +4857,24 @@ function tbUpdateEmptyStates() {
 }
 
 function tbUpdateInfo() {
-  const allyCount = tbAllySlots?.querySelectorAll(".tb-bot-card").length ?? 0;
-  const enemyCount = tbEnemySlots?.querySelectorAll(".tb-bot-card").length ?? 0;
-  if (tbMatchInfo) tbMatchInfo.textContent = `${allyCount} vs ${enemyCount}`;
-  if (btnTbRun) btnTbRun.disabled = allyCount < 1 || enemyCount < 1;
+  if (tbMode === "royale") {
+    const n = tbCountCards(tbRoyaleSlots);
+    if (tbMatchInfo) tbMatchInfo.textContent = `${n} combatant${n === 1 ? "" : "s"}`;
+    if (btnTbRun) btnTbRun.disabled = n < 3;
+  } else {
+    const a = tbCountCards(tbAllySlots);
+    const e = tbCountCards(tbEnemySlots);
+    if (tbMatchInfo) tbMatchInfo.textContent = `${a} vs ${e}`;
+    if (btnTbRun) btnTbRun.disabled = a < 1 || e < 1;
+  }
 }
 
 function tbAddBot(team, botKey) {
-  const container = team === "ally" ? tbAllySlots : tbEnemySlots;
+  const container = tbContainerFor(team);
   if (!container) return;
-  const count = container.querySelectorAll(".tb-bot-card").length;
-  if (count >= MAX_TEAM_SLOTS) {
-    logToConsole(`Max ${MAX_TEAM_SLOTS} bots per team.`, "warn");
+  const cap = team === "royale" ? MAX_ROYALE_SLOTS : MAX_TEAM_SLOTS;
+  if (tbCountCards(container) >= cap) {
+    logToConsole(`Roster is full (max ${cap}).`, "warn");
     return;
   }
   const empty = container.querySelector(".tb-empty");
@@ -4591,28 +4883,68 @@ function tbAddBot(team, botKey) {
   tbUpdateInfo();
 }
 
+/** Switch the modal between the Team Battle and Battle Royale layouts. */
+function tbSetMode(mode) {
+  tbMode = mode === "royale" ? "royale" : "team";
+  for (const btn of document.querySelectorAll(".tb-mode-btn")) {
+    btn.classList.toggle("active", btn.dataset.tbMode === tbMode);
+  }
+  for (const view of document.querySelectorAll(".tb-view")) {
+    view.hidden = view.dataset.tbView !== tbMode;
+  }
+  if (btnTbRun) btnTbRun.textContent = tbMode === "royale" ? "Run Royale" : "Run Battle";
+  tbUpdateInfo();
+}
+
+/** Fill the current layout's empty slots with a varied roster. */
+function tbAutofill() {
+  if (tbMode === "royale") {
+    if (tbCountCards(tbRoyaleSlots) === 0) tbAddBot("royale", "__editor__");
+    while (tbCountCards(tbRoyaleSlots) < 8) {
+      tbAddBot("royale", tbAutofillKey(tbCountCards(tbRoyaleSlots)));
+    }
+  } else {
+    if (tbCountCards(tbAllySlots) === 0) tbAddBot("ally", "__editor__");
+    while (tbCountCards(tbAllySlots) < 3) {
+      tbAddBot("ally", tbAutofillKey(tbCountCards(tbAllySlots) + 1));
+    }
+    while (tbCountCards(tbEnemySlots) < 3) {
+      tbAddBot("enemy", tbAutofillKey(tbCountCards(tbEnemySlots) + 7));
+    }
+  }
+  tbUpdateEmptyStates();
+}
+
+/** Remove every bot from the current layout. */
+function tbClear() {
+  const containers = tbMode === "royale" ? [tbRoyaleSlots] : [tbAllySlots, tbEnemySlots];
+  for (const c of containers) { if (c) c.innerHTML = ""; }
+  tbUpdateEmptyStates();
+  tbUpdateInfo();
+}
+
 function tbOpenModal() {
   if (!teamBuilderModal) return;
 
-  // Reset with defaults
   if (tbAllySlots) tbAllySlots.innerHTML = "";
   if (tbEnemySlots) tbEnemySlots.innerHTML = "";
+  if (tbRoyaleSlots) tbRoyaleSlots.innerHTML = "";
 
-  tbAddBot("ally", "bruiser");
+  // Sensible starting rosters for both layouts.
+  tbAddBot("ally", "__editor__");
   tbAddBot("ally", "healer");
   tbAddBot("enemy", "kiter");
   tbAddBot("enemy", "fortress");
+  tbAddBot("royale", "__editor__");
+  for (let i = 1; i < 8; i++) tbAddBot("royale", tbAutofillKey(i));
 
-  tbUpdateInfo();
-  // Remember which element opened the modal so we can restore focus on close,
-  // which is important for keyboard-only users.
+  tbSetMode("team");
+  tbUpdateEmptyStates();
+  // Remember the opener so focus can be restored for keyboard users.
   tbLastFocusedElement = document.activeElement;
   teamBuilderModal.hidden = false;
-  // Move focus into the modal so screen readers announce it.
   (btnTbRun || btnCloseTeamBuilder)?.focus?.();
 }
-
-let tbLastFocusedElement = null;
 
 function tbCloseModal() {
   if (teamBuilderModal) teamBuilderModal.hidden = true;
@@ -4622,47 +4954,77 @@ function tbCloseModal() {
   tbLastFocusedElement = null;
 }
 
-function tbRunBattle() {
-  if (!tbAllySlots || !tbEnemySlots) return;
-
-  const collectTeam = (container, teamId, prefix) => {
-    const cards = container.querySelectorAll(".tb-bot-card");
-    const team = [];
-    for (let i = 0; i < cards.length; i++) {
-      const key = cards[i].querySelector(".tb-card-select")?.value;
-      const preset = getBotEntry(key);
-      if (!preset) { logToConsole(`Unknown bot: ${key}`, "error"); return null; }
-      try {
-        const compiled = compile(preset.source);
-        if (!compiled.success) {
-          logToConsole(`${preset.name} compile fail: ${compiled.errors.join(", ")}`, "error");
-          return null;
-        }
-        team.push({
-          program: compiled.program, constants: compiled.constants,
-          playerId: `${prefix}_${preset.name.toLowerCase()}_${i}`, teamId,
-        });
-      } catch (e) {
-        logToConsole(`${preset.name} error: ${e.message}`, "error");
-        return null;
-      }
+/**
+ * Compile every card in a container into participant objects. `teamFn(i)`
+ * supplies the team id. `nameState` carries the cross-roster name allocator so
+ * the engine never sees a duplicate playerId.
+ */
+function tbCollectRoster(container, teamFn, nameState) {
+  const cards = container ? [...container.querySelectorAll(".tb-bot-card")] : [];
+  const out = [];
+  for (let i = 0; i < cards.length; i++) {
+    const key = cards[i].querySelector(".tb-card-select")?.value;
+    const entry = getBotEntry(key);
+    if (!entry) { logToConsole(`Unknown bot: ${key}`, "error"); return null; }
+    let compiled;
+    try { compiled = compile(entry.source); }
+    catch (e) { logToConsole(`${entry.name} error: ${e.message}`, "error"); return null; }
+    if (!compiled.success) {
+      logToConsole(`${entry.name} failed to compile: ${compiled.errors.join(", ")}`, "error");
+      return null;
     }
-    return team;
-  };
-
-  const allies = collectTeam(tbAllySlots, 0, "ally");
-  if (!allies) return;
-  const enemies = collectTeam(tbEnemySlots, 1, "opp");
-  if (!enemies) return;
-
-  if (allies.length < 1 || enemies.length < 1) {
-    logToConsole("Both teams need at least one bot.", "warn");
-    return;
+    // The editor bot becomes "player" (highlighted as You) on its first use.
+    let playerId;
+    if (entry.isEditor && !nameState.playerUsed) {
+      playerId = "player";
+      nameState.playerUsed = true;
+    } else {
+      const base = entry.isEditor ? "Your Bot" : entry.name;
+      let name = base, n = 2;
+      while (nameState.used.has(name.toLowerCase())) name = `${base} ${n++}`;
+      nameState.used.add(name.toLowerCase());
+      playerId = name;
+    }
+    out.push({
+      program: compiled.program, constants: compiled.constants,
+      playerId, teamId: teamFn(i),
+    });
   }
+  return out;
+}
 
-  const participants = [...allies, ...enemies];
-  const total = participants.length;
-  const mode = total <= 2 ? "duel_1v1" : "squad_2v2";
+async function tbRunBattle() {
+  const nameState = { used: new Set(["you"]), playerUsed: false };
+  let participants, mode, label;
+
+  if (tbMode === "royale") {
+    const roster = tbCollectRoster(tbRoyaleSlots, () => 0, nameState);
+    if (!roster) return;
+    if (roster.length < 3) {
+      logToConsole("Battle royale needs at least 3 combatants.", "warn");
+      return;
+    }
+    // Put the player first so they anchor team 0, then give each its own team.
+    roster.sort((a, b) => (b.playerId === "player" ? 1 : 0) - (a.playerId === "player" ? 1 : 0));
+    roster.forEach((p, i) => { p.teamId = i; });
+    participants = roster;
+    mode = "battle_royale";
+    label = `Battle Royale · ${roster.length} bots`;
+  } else {
+    const allies = tbCollectRoster(tbAllySlots, () => 0, nameState);
+    if (!allies) return;
+    const enemies = tbCollectRoster(tbEnemySlots, () => 1, nameState);
+    if (!enemies) return;
+    if (allies.length < 1 || enemies.length < 1) {
+      logToConsole("Both teams need at least one bot.", "warn");
+      return;
+    }
+    participants = [...allies, ...enemies];
+    const maxN = Math.max(allies.length, enemies.length);
+    mode = maxN <= 1 ? "duel_1v1" : maxN <= 2 ? "squad_2v2"
+      : maxN <= 3 ? "team_3v3" : maxN <= 4 ? "team_4v4" : "team_5v5";
+    label = `Team Battle · ${allies.length}v${enemies.length}`;
+  }
 
   const setup = {
     config: {
@@ -4674,8 +5036,10 @@ function tbRunBattle() {
   };
 
   tbCloseModal();
+  logToConsole(`\n--- Team Builder: ${label} ---`, "event");
+  showMatchLoading("Simulating match…", label);
+  await nextFrame();
 
-  logToConsole(`\n--- Team Builder: ${allies.length}v${enemies.length} ---`, "event");
   let result;
   try {
     telemetry.increment(Telemetry.MATCH_RUN);
@@ -4683,15 +5047,18 @@ function tbRunBattle() {
   } catch (e) {
     telemetry.increment(Telemetry.MATCH_ERROR);
     logToConsole(`Match error: ${e.message}`, "error");
+    hideMatchLoading();
     return;
+  } finally {
+    hideMatchLoading();
   }
 
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
-  logToConsole(`Winner: ${result.winner === null ? "DRAW" : `Team ${result.winner}`} | ${result.reason} | ${result.tickCount} ticks`, "success");
+  logToConsole(`Winner: ${result.winner === null ? "DRAW" : `Team ${result.winner}`}  |  ${result.reason}  |  ${result.tickCount} ticks`, "success");
   flushBotLogs(result.botLogs);
-  showMatchResults(result, "Enemy Team");
-  startReplay(result, "Team Battle");
+  showMatchResults(result, null);
+  startReplay(result, null);
 }
 
 // ============================================================================
@@ -4852,10 +5219,31 @@ btnCloseTeamBuilder?.addEventListener("click", tbCloseModal);
 btnTbCancel?.addEventListener("click", tbCloseModal);
 btnTbRun?.addEventListener("click", tbRunBattle);
 
-// Add bot buttons inside modal
+// Add-bot buttons: append a fresh card with a varied default bot.
 for (const btn of document.querySelectorAll(".tb-add-btn")) {
-  btn.addEventListener("click", () => tbAddBot(btn.dataset.team, "bruiser"));
+  btn.addEventListener("click", () => {
+    const team = btn.dataset.team;
+    tbAddBot(team, tbAutofillKey(tbCountCards(tbContainerFor(team))));
+  });
 }
+
+// Battle-format toggle + quick actions.
+for (const btn of document.querySelectorAll(".tb-mode-btn")) {
+  btn.addEventListener("click", () => tbSetMode(btn.dataset.tbMode));
+}
+document.getElementById("btn-tb-autofill")?.addEventListener("click", tbAutofill);
+document.getElementById("btn-tb-clear")?.addEventListener("click", tbClear);
+
+// Picking Battle Royale defaults the arena to the dedicated free-for-all map.
+matchModeSelect?.addEventListener("change", () => {
+  if (matchModeSelect.value === "battle_royale" && arenaSelect
+      && [...arenaSelect.options].some(o => o.value === "nexus")) {
+    arenaSelect.value = "nexus";
+    currentArenaId = "nexus";
+    updateArenaInfo();
+    if (!replayData) drawIdle();
+  }
+});
 
 // Close modal on overlay click
 teamBuilderModal?.addEventListener("click", (e) => {
@@ -4890,6 +5278,15 @@ btnExitMatchLive?.addEventListener("click", exitMatchLive);
  */
 function getBotEntry(key) {
   if (!key) return null;
+  // The live editor program — lets the Team Builder field the player's own bot.
+  if (key === "__editor__") {
+    return {
+      name: currentEditorBotName || "Your Bot",
+      class: compiledPlayer?.program?.robotClass || "brawler",
+      source: editorEl.value,
+      isEditor: true,
+    };
+  }
   if (typeof key === "string" && key.startsWith("user_")) {
     const bot = BotLibrary.getById(key);
     if (!bot) return null;
@@ -4901,8 +5298,12 @@ function getBotEntry(key) {
 }
 
 /** Build <option> markup for every available bot, marking `selectedKey` as selected. */
-function buildBotSelectOptions(selectedKey) {
+function buildBotSelectOptions(selectedKey, includeEditor = false) {
   const groups = [];
+  if (includeEditor) {
+    const sel = selectedKey === "__editor__" ? " selected" : "";
+    groups.push(`<optgroup label="Editor"><option value="__editor__"${sel}>★ Your Bot (editor)</option></optgroup>`);
+  }
   const presetOpts = Object.entries(BOT_PRESETS)
     .map(([k, p]) => `<option value="${k}"${k === selectedKey ? " selected" : ""}>${escapeHtml(p.name)}</option>`)
     .join("");
