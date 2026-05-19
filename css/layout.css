@@ -501,6 +501,18 @@
   box-shadow: 0 0 8px var(--accent-cyan);
 }
 
+/* ---- Builder View Overrides ---- */
+
+body[data-view="builder"] .arena-pane,
+body[data-view="builder"] .resize-handle {
+  display: none;
+}
+
+body[data-view="builder"] .editor-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* ---- Arena View Overrides ---- */
 
 body[data-view="arena"] .editor-pane,
@@ -514,15 +526,8 @@ body[data-view="arena"] .arena-pane {
   min-width: 0;
 }
 
-body[data-view="arena"] .btn-save,
-body[data-view="arena"] .btn-compile,
-body[data-view="arena"] #btn-compile-run {
+body[data-view="arena"] .editor-toolbar {
   display: none;
-}
-
-body[data-view="arena"] .editor-toolbar .file-tab::before {
-  content: "Arena \2014 ";
-  color: var(--accent-cyan);
 }
 
 body[data-view="arena"] .arena-canvas-wrap {

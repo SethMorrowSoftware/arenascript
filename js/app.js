@@ -4244,6 +4244,9 @@ function syncResultsToFrame() {
 // ============================================================================
 
 function startReplay(result, opponentName) {
+  if (currentView !== "arena") {
+    setView("arena");
+  }
   stopReplay();
 
   // Load the procedural arena layout from replay metadata
@@ -5065,6 +5068,13 @@ async function tbRunBattle() {
 // Full-page Battle & Decision Traces Toggles
 // ============================================================================
 
+function exitFullPageBattle() {
+  fullPageBattle = false;
+  document.body.classList.remove("fullpage-battle");
+  btnToggleFullpage?.classList.remove("active");
+  if (btnToggleFullpage) btnToggleFullpage.textContent = "Expand";
+}
+
 function toggleFullPageBattle() {
   fullPageBattle = !fullPageBattle;
   document.body.classList.toggle("fullpage-battle", fullPageBattle);
@@ -5344,11 +5354,20 @@ function toast(message, type = "info", timeout = 3500) {
 
 function setView(name) {
   if (name !== "builder" && name !== "arena" && name !== "library") return;
+
+  const leavingArena = currentView === "arena" && name !== "arena";
   currentView = name;
   document.body.dataset.view = name;
 
-  // Exit match-live mode if switching away from workspace views
-  if (name === "library" && matchLiveMode) exitMatchLive();
+  // Arena playback should never keep occupying the UI after the user leaves
+  // the Arena tab. Keep the replay data available, but stop animations and
+  // collapse broadcast/full-page chrome so Builder and Library feel like clean
+  // destinations rather than partial overlays.
+  if (name !== "arena") {
+    if (leavingArena) stopReplay();
+    if (matchLiveMode) exitMatchLive();
+    if (fullPageBattle) exitFullPageBattle();
+  }
 
   // Top nav tabs
   document.querySelectorAll(".view-tab").forEach((btn) => {

@@ -10,8 +10,8 @@
 // ============================================================================
 
 // ---- Engine / Language ----
-const ENGINE_VERSION   = '0.1.0';
-const LANGUAGE_VERSION = '1.0';
+const ENGINE_VERSION   = '0.2.0';
+const LANGUAGE_VERSION = '1.1';
 
 // ---- Arena ----
 const ARENA_WIDTH  = 140;
