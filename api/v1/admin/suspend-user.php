@@ -46,5 +46,5 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    as_error('Unable to suspend user: ' . $e->getMessage(), 500);
+    as_fail('Unable to suspend user', $e, 500);
 }

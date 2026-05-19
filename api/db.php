@@ -34,6 +34,12 @@ function as_load_local_env(): void
         }
         $key = trim($parts[0]);
         $value = trim($parts[1]);
+        // A double-quoted value preserves leading/trailing spaces and other
+        // characters that bare values would lose — cPanel auto-generates DB
+        // passwords with such characters. Escapes: \" \\ \n.
+        if (strlen($value) >= 2 && $value[0] === '"' && $value[strlen($value) - 1] === '"') {
+            $value = strtr(substr($value, 1, -1), ['\\n' => "\n", '\\"' => '"', '\\\\' => '\\']);
+        }
         if ($key === '') {
             continue;
         }
@@ -84,7 +90,8 @@ function as_db(): PDO
             PDO::ATTR_EMULATE_PREPARES   => false,
         ]);
     } catch (PDOException $e) {
-        as_error('Database connection failed: ' . $e->getMessage(), 503);
+        // Never echo the PDO message — it contains the DSN (host, db name).
+        as_fail('Database unavailable', $e, 503);
     }
 
     return $pdo;

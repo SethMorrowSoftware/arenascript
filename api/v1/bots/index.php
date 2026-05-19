@@ -99,5 +99,5 @@ try {
     if ((int) $e->getCode() === 23000) {
         as_error('Bot slug already exists for this user', 409);
     }
-    as_error('Unable to create bot: ' . $e->getMessage(), 500);
+    as_fail('Unable to create bot', $e, 500);
 }

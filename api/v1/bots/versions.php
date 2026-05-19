@@ -73,5 +73,5 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    as_error('Unable to create bot version: ' . $e->getMessage(), 500);
+    as_fail('Unable to create bot version', $e, 500);
 }

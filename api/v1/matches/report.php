@@ -51,6 +51,34 @@ foreach ($participants as $p) {
 as_require(in_array($reporterId, $participantIds, true), 'Reporter must be one of the participants', 403);
 
 $pdo = as_db();
+
+// Every named participant must be a real account — a result (and any
+// rating change it carries) cannot be filed against a user id that does
+// not exist.
+$uniqueIds = array_values(array_unique($participantIds));
+$placeholders = implode(',', array_fill(0, count($uniqueIds), '?'));
+$existsStmt = $pdo->prepare("SELECT COUNT(*) FROM users WHERE id IN ($placeholders)");
+$existsStmt->execute($uniqueIds);
+as_require(
+    (int) $existsStmt->fetchColumn() === count($uniqueIds),
+    'One or more participants are not registered users',
+    422,
+);
+
+// Ranked anti-farm: a seed identifies one match, so refuse to re-report a
+// ranked seed — otherwise a player could replay the same win to inflate
+// Elo. Cheat-proofing beyond this needs server-side re-simulation, which a
+// JavaScript engine cannot provide; this blocks the trivial replay exploit.
+if ($mode === '1v1_ranked') {
+    $dupStmt = $pdo->prepare('SELECT COUNT(*) FROM matches WHERE mode = :mode AND seed = :seed');
+    $dupStmt->execute(['mode' => $mode, 'seed' => $seed]);
+    as_require(
+        (int) $dupStmt->fetchColumn() === 0,
+        'This ranked match has already been reported',
+        409,
+    );
+}
+
 $matchId = as_uuid();
 
 try {
@@ -143,7 +171,7 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    as_error('Unable to report match: ' . $e->getMessage(), 500);
+    as_fail('Unable to report match', $e, 500);
 }
 
 function as_get_or_create_rating(PDO $pdo, string $userId, string $queue): array

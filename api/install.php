@@ -25,8 +25,11 @@ if (!$isLocal && !$installerEnabled) {
     $errors[] = 'Installer is disabled for non-local requests. Set ARENA_ALLOW_INSTALLER=1 to enable temporarily.';
 }
 
-if (is_file($lockPath) && ($_POST['force'] ?? '') !== '1') {
-    $errors[] = 'Installer is locked. Delete api/.installed.lock to re-run (or use Force Reinstall checkbox).';
+if (is_file($lockPath)) {
+    // The lock is absolute: there is deliberately no web-facing override.
+    // Re-running requires filesystem access (cPanel File Manager / SSH),
+    // which keeps a stranger from re-pointing the install at their own DB.
+    $errors[] = 'Installer is locked — this host is already installed. To re-run, delete api/.installed.lock via your file manager or SSH.';
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && count($errors) === 0) {
@@ -116,13 +119,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && count($errors) === 0) {
             $roleAssign->execute(['uid' => $adminUserId]);
             $pdo->commit();
 
+            // Quote every value so credentials with spaces or special
+            // characters (cPanel auto-generates such passwords) round-trip
+            // intact through the .env.local parser in db.php.
+            $envQuote = static fn(string $v): string =>
+                '"' . strtr($v, ['\\' => '\\\\', '"' => '\\"', "\n" => '\\n']) . '"';
             $envContent = implode("\n", [
                 'ARENA_DB_ENABLED=1',
-                'ARENA_DB_HOST=' . $host,
-                'ARENA_DB_PORT=' . $port,
-                'ARENA_DB_NAME=' . $name,
-                'ARENA_DB_USER=' . $user,
-                'ARENA_DB_PASS=' . $pass,
+                'ARENA_DB_HOST=' . $envQuote($host),
+                'ARENA_DB_PORT=' . $envQuote($port),
+                'ARENA_DB_NAME=' . $envQuote($name),
+                'ARENA_DB_USER=' . $envQuote($user),
+                'ARENA_DB_PASS=' . $envQuote($pass),
                 'ARENA_SESSION_TTL_HOURS=336',
                 '',
             ]);
@@ -218,9 +226,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && count($errors) === 0) {
         <div class="full">
           <label>Admin Password</label>
           <input name="admin_password" type="password" required>
-        </div>
-        <div class="full">
-          <label><input type="checkbox" name="force" value="1"> Force Reinstall (ignore lock file)</label>
         </div>
       </div>
 

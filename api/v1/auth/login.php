@@ -30,9 +30,17 @@ $stmt = $pdo->prepare(
 $stmt->execute(['identity' => $identity]);
 $user = $stmt->fetch();
 
-as_require(is_array($user), 'Invalid credentials', 401);
+// Verify the password BEFORE disclosing anything about the account. On a
+// miss we still run password_verify against a real argon2id hash so the
+// response timing does not reveal whether the identity exists.
+const AS_DUMMY_PASSWORD_HASH = '$argon2id$v=19$m=65536,t=4,p=1$S2VOVHl6WVRsLy96OFpnQw$qphRNduFKr0U23nAz2Agfn88tL7ecQBVNvyNI/DDMa0';
+$hash = is_array($user) ? (string) $user['password_hash'] : AS_DUMMY_PASSWORD_HASH;
+$passwordOk = password_verify($password, $hash);
+as_require(is_array($user) && $passwordOk, 'Invalid credentials', 401);
+
+// Only after the caller has proven ownership may a non-active status be
+// disclosed — otherwise the 403 itself becomes an account-enumeration oracle.
 as_require(($user['status'] ?? 'active') === 'active', 'Account is not active', 403);
-as_require(password_verify($password, (string) $user['password_hash']), 'Invalid credentials', 401);
 
 $session = as_issue_session((string) $user['id']);
 

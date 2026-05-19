@@ -73,5 +73,5 @@ try {
     if ((int) $e->getCode() === 23000) {
         as_error('Email or username is already in use', 409);
     }
-    as_error('Registration failed: ' . $e->getMessage(), 500);
+    as_fail('Registration failed', $e, 500);
 }

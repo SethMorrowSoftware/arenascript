@@ -19,6 +19,11 @@ function as_calculate_elo_change(float $winnerRating, float $loserRating): array
     $k = (as_k_factor($winnerRating) + as_k_factor($loserRating)) / 2;
 
     $winnerDelta = (int) round($k * (1 - $expectedWin));
+    // A decisive result must always move the ladder — a wide skill gap
+    // would otherwise round the transfer to zero. Mirrors js/server/ranked.js.
+    if ($winnerDelta < 1) {
+        $winnerDelta = 1;
+    }
     if ($loserRating - $winnerDelta < 0) {
         $winnerDelta = (int) $loserRating;
     }

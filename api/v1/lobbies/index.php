@@ -68,7 +68,7 @@ if ($method === 'POST') {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
             }
-            as_error('Unable to create lobby: ' . $e->getMessage(), 500);
+            as_fail('Unable to create lobby', $e, 500);
         }
     }
 
@@ -102,7 +102,7 @@ if ($method === 'POST') {
             if ((int) $e->getCode() === 23000) {
                 as_error('Already in this lobby', 409);
             }
-            as_error('Unable to join lobby: ' . $e->getMessage(), 500);
+            as_fail('Unable to join lobby', $e, 500);
         }
     }
 

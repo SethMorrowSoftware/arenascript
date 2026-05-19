@@ -12,21 +12,14 @@
 //   - as_respond($data, $status)  Emit JSON response and exit.
 //   - as_error($msg, $status)     Emit JSON error and exit.
 //   - as_require($cond, $msg)     Assert-style 400 on failure.
+//   - as_fail($msg, $e, $status)  Log an exception, emit a generic error.
 //
 // Persistence:
-//   - JsonStore                   File-backed JSON key/value store with
-//                                 flock-guarded read-modify-write. Stores
-//                                 live under api/.storage/.
+//   - JsonStore                   File-backed JSON key/value store, used
+//                                 only by the rate limiter (api/.storage/).
 //
-// Auth (intentionally minimal for beta):
-//   - as_current_player()         Reads the `X-Arena-Player` header and
-//                                 returns a stable player token. If missing,
-//                                 returns null (caller decides whether to
-//                                 require auth or mint an anonymous token).
-//   - as_issue_token()            Mint a fresh anonymous player token.
-//
-// This file is `require_once`'d by every endpoint. It does NOT dispatch any
-// request on its own.
+// Real authentication lives in db.php (MySQL-backed bearer sessions); this
+// file is `require_once`'d by every endpoint and dispatches nothing itself.
 // ============================================================================
 
 declare(strict_types=1);
@@ -80,15 +73,19 @@ function as_bootstrap(): void
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store');
 
-    // CORS: default to permissive in local/dev, allow explicit allowlist in prod
-    // via ARENA_CORS_ORIGIN (single origin) or ARENA_CORS_ORIGIN="*" .
-    $cors = getenv('ARENA_CORS_ORIGIN');
-    if ($cors === false || $cors === '') {
-        $cors = '*';
+    // CORS: default-deny. This is a state-mutating API, so an unconfigured
+    // host emits no Access-Control-Allow-Origin at all (same-origin requests
+    // — how the shipped app talks to it — do not need one). Cross-origin
+    // access requires an explicit ARENA_CORS_ORIGIN allowlist.
+    $corsOrigin = as_resolve_cors_origin();
+    if ($corsOrigin !== null) {
+        header('Access-Control-Allow-Origin: ' . $corsOrigin);
+        if ($corsOrigin !== '*') {
+            header('Vary: Origin');
+        }
     }
-    header('Access-Control-Allow-Origin: ' . $cors);
     header('Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, X-Arena-Player');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization');
     header('Access-Control-Max-Age: 600');
 
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
@@ -96,16 +93,20 @@ function as_bootstrap(): void
         exit;
     }
 
+    // Error handlers log the real detail server-side and return a generic
+    // message — internal paths and messages must never reach the client.
     set_error_handler(function (int $severity, string $message, string $file, int $line): bool {
         if (!(error_reporting() & $severity)) {
             return false;
         }
-        as_error("Server error: $message", 500);
+        error_log("ArenaScript PHP error: $message in $file:$line");
+        as_error('Internal server error', 500);
         return true;
     });
 
     set_exception_handler(function (Throwable $e): void {
-        as_error('Unhandled exception: ' . $e->getMessage(), 500);
+        error_log('ArenaScript uncaught exception: ' . $e);
+        as_error('Internal server error', 500);
     });
 
     // Parse JSON body once and stash it for later retrieval.
@@ -150,7 +151,17 @@ function as_rate_limit(string $bucket, int $maxRequests, int $windowSeconds): bo
     $key = $bucket . ':' . $window;
     $store = new JsonStore('ratelimits');
 
-    return $store->mutate(function (array $state) use ($key, $maxRequests, $now): array {
+    return $store->mutate(function (array $state) use ($key, $maxRequests, $now, $window): array {
+        // Drop expired fixed-window buckets so the store cannot grow without
+        // bound. The window number is always the segment after the last ':'.
+        $cutoff = $window - 2;
+        foreach (array_keys($state) as $k) {
+            $colon = strrpos((string) $k, ':');
+            if ($colon !== false && (int) substr((string) $k, $colon + 1) < $cutoff) {
+                unset($state[$k]);
+            }
+        }
+
         $state[$key] ??= ['count' => 0, 'updatedAt' => $now];
         $state[$key]['count'] = (int) ($state[$key]['count'] ?? 0) + 1;
         $state[$key]['updatedAt'] = $now;
@@ -205,50 +216,53 @@ function as_require(bool $cond, string $message, int $status = 400): void
     }
 }
 
-// ----------------------------------------------------------------------------
-// Auth — anonymous player tokens
-// ----------------------------------------------------------------------------
+/**
+ * Resolve the Access-Control-Allow-Origin value for this request, or null
+ * to send no CORS header at all. ARENA_CORS_ORIGIN may be "*", a single
+ * origin, or a comma-separated allowlist. With nothing configured only
+ * loopback dev origins are reflected — never a wildcard.
+ */
+function as_resolve_cors_origin(): ?string
+{
+    $origin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
+    $configured = getenv('ARENA_CORS_ORIGIN');
+
+    if ($configured === '*') {
+        return '*';
+    }
+    if (is_string($configured) && $configured !== '') {
+        $allow = array_map('trim', explode(',', $configured));
+        return in_array($origin, $allow, true) ? $origin : null;
+    }
+    if ($origin !== '' && preg_match('#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#', $origin) === 1) {
+        return $origin;
+    }
+    return null;
+}
 
 /**
- * Return the player token from the X-Arena-Player header, or null if absent.
- * Tokens are opaque 32-hex strings. We do not verify them against a user
- * database — they only need to be unguessable so a player can't spoof another
- * player's match results or lobby submissions.
+ * Log an exception server-side and emit a generic error to the client.
+ * Internal exception text routinely leaks SQL fragments, table/column
+ * names and connection details, so it must never reach the HTTP response.
  */
-function as_current_player(): ?string
+function as_fail(string $publicMessage, Throwable $e, int $status = 500): never
 {
-    $token = $_SERVER['HTTP_X_ARENA_PLAYER'] ?? null;
-    if (!is_string($token) || !preg_match('/^[a-f0-9]{32}$/', $token)) {
-        return null;
-    }
-    return $token;
-}
-
-function as_require_player(): string
-{
-    $p = as_current_player();
-    if ($p === null) {
-        as_error('Missing or malformed X-Arena-Player header', 401);
-    }
-    return $p;
-}
-
-function as_issue_token(): string
-{
-    return bin2hex(random_bytes(16));
+    error_log('ArenaScript: ' . $publicMessage . ' :: ' . $e);
+    as_error($publicMessage, $status);
 }
 
 // ----------------------------------------------------------------------------
 // JsonStore — file-backed key/value persistence
 // ----------------------------------------------------------------------------
 //
+// The single MySQL-backed v1 API is authoritative for all real state. The
+// only remaining JsonStore use is the fixed-window rate limiter, which keeps
+// a small, self-pruning counter file under api/.storage/ — deliberately not
+// in the database so a rate-limit check never depends on a DB round-trip.
+//
 // Each named store is a single JSON file under api/.storage/<name>.json.
 // Reads are lock-free; writes take an exclusive flock for the duration of
-// the read-modify-write cycle. This is not a database, but it's sufficient
-// for beta ladder/lobby state on a single PHP host.
-//
-// For a higher-traffic or multi-host deployment, swap `JsonStore` for a
-// Redis- or SQLite-backed implementation with the same interface.
+// the read-modify-write cycle.
 // ============================================================================
 
 final class JsonStore
