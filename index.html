@@ -198,8 +198,12 @@
         <div class="sidebar-section">
           <label for="match-mode">Match Mode</label>
           <select id="match-mode" class="opponent-select">
-            <option value="duel_1v1" selected>Duel 1v1</option>
-            <option value="squad_2v2">Squad 2v2</option>
+            <option value="duel_1v1" selected>1v1 &mdash; Duel</option>
+            <option value="squad_2v2">2v2 &mdash; Squad</option>
+            <option value="team_3v3">3v3 &mdash; Team</option>
+            <option value="team_4v4">4v4 &mdash; Team</option>
+            <option value="team_5v5">5v5 &mdash; Team</option>
+            <option value="battle_royale">Battle Royale &mdash; 12 bots</option>
           </select>
         </div>
 
@@ -494,27 +498,54 @@
         <button id="btn-close-team-builder" class="tb-modal-close" title="Close">&times;</button>
       </div>
       <div class="tb-modal-body">
-        <div class="tb-team tb-team-ally">
-          <div class="tb-team-header">
-            <span class="tb-team-label tb-label-ally">Your Team</span>
-            <button class="tb-add-btn" data-team="ally" title="Add bot">+ Add Bot</button>
+        <!-- Mode toggle + quick actions -->
+        <div class="tb-controls">
+          <div class="tb-mode-toggle" role="group" aria-label="Battle format">
+            <button class="tb-mode-btn active" data-tb-mode="team" type="button">Team Battle</button>
+            <button class="tb-mode-btn" data-tb-mode="royale" type="button">Battle Royale</button>
           </div>
-          <div class="tb-slots" id="tb-ally-slots"></div>
+          <div class="tb-controls-actions">
+            <button id="btn-tb-autofill" class="tb-mini-btn" type="button" title="Fill empty slots with varied presets">Auto-fill</button>
+            <button id="btn-tb-clear" class="tb-mini-btn" type="button" title="Remove every bot">Clear</button>
+          </div>
         </div>
-        <div class="tb-vs">VS</div>
-        <div class="tb-team tb-team-enemy">
-          <div class="tb-team-header">
-            <span class="tb-team-label tb-label-enemy">Enemy Team</span>
-            <button class="tb-add-btn" data-team="enemy" title="Add bot">+ Add Bot</button>
+
+        <!-- Team Battle: two opposing squads -->
+        <div class="tb-view" data-tb-view="team">
+          <div class="tb-teams">
+            <div class="tb-team tb-team-ally">
+              <div class="tb-team-header">
+                <span class="tb-team-label tb-label-ally">Blue Team</span>
+                <button class="tb-add-btn" data-team="ally" type="button" title="Add bot">+ Add</button>
+              </div>
+              <div class="tb-slots" id="tb-ally-slots"></div>
+            </div>
+            <div class="tb-vs">VS</div>
+            <div class="tb-team tb-team-enemy">
+              <div class="tb-team-header">
+                <span class="tb-team-label tb-label-enemy">Red Team</span>
+                <button class="tb-add-btn" data-team="enemy" type="button" title="Add bot">+ Add</button>
+              </div>
+              <div class="tb-slots" id="tb-enemy-slots"></div>
+            </div>
           </div>
-          <div class="tb-slots" id="tb-enemy-slots"></div>
+        </div>
+
+        <!-- Battle Royale: one free-for-all roster -->
+        <div class="tb-view" data-tb-view="royale" hidden>
+          <div class="tb-royale-header">
+            <span class="tb-team-label">Combatants</span>
+            <button class="tb-add-btn" data-team="royale" type="button" title="Add combatant">+ Add</button>
+          </div>
+          <div class="tb-royale-grid" id="tb-royale-slots"></div>
+          <div class="tb-royale-hint">Up to 20 combatants &mdash; every bot for itself, last one standing wins.</div>
         </div>
       </div>
       <div class="tb-modal-footer">
         <span class="tb-match-info" id="tb-match-info">0 vs 0</span>
         <div class="tb-footer-actions">
-          <button id="btn-tb-cancel" class="tb-btn-secondary">Cancel</button>
-          <button id="btn-tb-run" class="tb-btn-primary">Run Battle</button>
+          <button id="btn-tb-cancel" class="tb-btn-secondary" type="button">Cancel</button>
+          <button id="btn-tb-run" class="tb-btn-primary" type="button">Run Battle</button>
         </div>
       </div>
     </div>

@@ -465,3 +465,61 @@ body.match-live #arena-canvas {
   font-size: 10px;
   letter-spacing: 0.3px;
 }
+
+/* ---- Battle Royale scorecard ---- */
+
+.result-br-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 8px 14px 10px;
+}
+
+.result-br-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+}
+
+.result-br-stat-v {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.result-br-stat-l {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.result-podium-rank {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+.result-podium-rank.rank-1 { background: rgba(255, 221, 0, 0.2); color: var(--accent-yellow); }
+.result-podium-rank.rank-2 { background: rgba(200, 205, 225, 0.16); color: #ccd0e0; }
+.result-podium-rank.rank-3 { background: rgba(205, 127, 50, 0.22); color: #e0995e; }
+
+.result-robot-row.is-you {
+  border-color: rgba(0, 212, 255, 0.4);
+  background: var(--accent-cyan-dim);
+}
+.result-robot-row.is-you .result-robot-name { color: var(--accent-cyan); }

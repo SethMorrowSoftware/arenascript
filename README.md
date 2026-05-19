@@ -30,10 +30,16 @@ A deterministic robot arena combat engine with a custom domain-specific language
 - **Information warfare** — cloaking with break-on-damage/attack + directional scan
 - **Hive memory** — shared team key/value store for squad coordination
 - **Advanced combat** — light/heavy projectiles, short-range zap, armed self-destruct
-- **5 hand-crafted arenas** — Crucible, Inferno, Fortress, Gauntlet, Plains
+- **6 hand-crafted arenas** — Crucible, Inferno, Fortress, Gauntlet, Plains, and
+  the radially-symmetric free-for-all arena, The Nexus
 - **4 robot classes** — Brawler, Ranger, Tank, Support with distinct stats & heat profiles
+- **Match formats** — 1v1, 2v2, 3v3, 4v4, 5v5 team battles and battle royale
+  (free-for-all, up to 20 bots, last one standing)
 
 ### UI
+- **Team Builder** — assemble custom rosters: two squads (up to 5v5) or a
+  battle royale field of up to 20, fielding your own editor bot, presets, or
+  library bots, with one-click auto-fill
 - **Match broadcast mode** — when a match runs the arena takes over the screen
   with a cinematic intro, a broadcast scoreboard, and a live combatant HUD
   (per-team rosters with real-time HP bars)

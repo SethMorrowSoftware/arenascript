@@ -298,14 +298,17 @@ function test_rating_store_leaderboard() {
 // ---------------------------------------------------------------------------
 
 function test_validate_match_mode_valid() {
-  for (const mode of ["1v1_ranked", "1v1_unranked", "2v2", "ffa", "duel_1v1", "squad_2v2", "test"]) {
+  for (const mode of [
+    "1v1_ranked", "1v1_unranked", "2v2", "ffa", "duel_1v1", "squad_2v2",
+    "team_3v3", "team_4v4", "team_5v5", "battle_royale", "test",
+  ]) {
     const result = validateMatchMode(mode);
     assert.equal(result.valid, true, `Mode "${mode}" should be valid`);
   }
 }
 
 function test_validate_match_mode_invalid() {
-  const result = validateMatchMode("battle_royale");
+  const result = validateMatchMode("not_a_real_mode");
   assert.equal(result.valid, false);
   assert.ok(result.errors.length > 0);
 }

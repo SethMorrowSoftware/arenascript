@@ -573,6 +573,162 @@ body.match-live .match-results {
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* ============================================================================
+   Battle Royale — free-for-all scoreboard, HUD and kill feed
+   ============================================================================ */
+
+/* Scoreboard adapts: no VS, no team dots, the second slot becomes a counter. */
+.match-scoreboard.is-ffa .sb-vs,
+.match-scoreboard.is-ffa .sb-dot { display: none; }
+
+.match-scoreboard.is-ffa .sb-team-0 {
+  color: var(--accent-cyan);
+  background: linear-gradient(90deg, rgba(0, 212, 255, 0.16), transparent);
+}
+.match-scoreboard.is-ffa .sb-team-1 {
+  color: var(--accent-yellow);
+  background: linear-gradient(270deg, rgba(255, 221, 0, 0.14), transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Battle royale HUD panel (left): alive counter + your bot ---- */
+
+.br-hud-panel {
+  background: rgba(10, 11, 20, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: var(--shadow-md);
+}
+
+.br-hud-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  margin-bottom: 9px;
+}
+
+.br-hud-alive {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+.br-hud-alive-n {
+  font-size: 38px;
+  font-weight: 800;
+  color: var(--text-bright);
+  font-variant-numeric: tabular-nums;
+  line-height: 0.9;
+}
+
+.br-hud-alive-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.4;
+}
+
+/* ---- Battle royale kill feed (right) ---- */
+
+.br-feed-panel {
+  background: rgba(10, 11, 20, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 3px solid var(--accent-red);
+  border-radius: var(--radius);
+  padding: 12px;
+  box-shadow: var(--shadow-md);
+}
+
+.br-feed-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--accent-red);
+  margin-bottom: 9px;
+  text-align: right;
+}
+
+.br-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.br-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.3);
+  animation: br-feed-in 0.25s ease-out;
+}
+
+.br-feed-row.is-you {
+  background: var(--accent-red-dim);
+  border: 1px solid rgba(255, 51, 85, 0.3);
+}
+
+@keyframes br-feed-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.br-feed-skull { font-size: 10px; opacity: 0.55; flex-shrink: 0; }
+
+.br-feed-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.br-feed-row.is-you .br-feed-name { color: var(--accent-red); }
+
+.br-feed-tick {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.br-feed-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 6px 7px;
+}
+
+/* ---- Battle royale intro splash ---- */
+
+.match-intro.is-ffa .match-intro-side-1,
+.match-intro.is-ffa .match-intro-vs,
+.match-intro.is-ffa .match-intro-tag { display: none; }
+
+.match-intro.is-ffa .match-intro-side-0 {
+  width: auto;
+  text-align: center;
+  align-items: center;
+}
+
+.match-intro.is-ffa .match-intro-name {
+  font-size: 38px;
+  background: var(--gradient-cyan);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 /* ---- Match Live: Exit Button ---- */
 
 .match-live-exit {
