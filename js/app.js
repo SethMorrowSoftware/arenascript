@@ -3396,6 +3396,105 @@ function drawArenaBackground() {
   ctx.restore();
 }
 
+/**
+ * Draw a class-specific robot silhouette. Each class has a distinctive shape
+ * that reads at a glance:
+ *   brawler — bulky hexagon (heavy aggressor)
+ *   ranger  — kite / arrowhead aligned to heading (sleek skirmisher)
+ *   tank    — octagon with armor plates (fortified)
+ *   support — rounded square with cross emblem (utility)
+ */
+function drawClassBody(ctx2d, cx, cy, radius, robotClass, color, fill, heading) {
+  ctx2d.lineJoin = "round";
+  ctx2d.strokeStyle = color;
+  ctx2d.lineWidth = 1.5;
+
+  // Angle aligned to heading so silhouettes feel directional.
+  const ang = heading && (heading.x !== 0 || heading.y !== 0)
+    ? Math.atan2(heading.y, heading.x)
+    : 0;
+
+  const polygon = (n, rOuter, rInner, rotateOffset = 0) => {
+    ctx2d.beginPath();
+    for (let i = 0; i < n; i++) {
+      const a = ang + rotateOffset + (i / n) * Math.PI * 2;
+      const r = rInner != null && i % 2 === 1 ? rInner : rOuter;
+      const px = cx + Math.cos(a) * r;
+      const py = cy + Math.sin(a) * r;
+      if (i === 0) ctx2d.moveTo(px, py);
+      else ctx2d.lineTo(px, py);
+    }
+    ctx2d.closePath();
+  };
+
+  if (robotClass === "tank") {
+    // Octagonal armored plate
+    polygon(8, radius * 1.15, null, Math.PI / 8);
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+    // Inner core ring for a "turret" feel.
+    ctx2d.beginPath();
+    ctx2d.arc(cx, cy, radius * 0.55, 0, Math.PI * 2);
+    ctx2d.strokeStyle = color;
+    ctx2d.lineWidth = 1;
+    ctx2d.stroke();
+  } else if (robotClass === "ranger") {
+    // Forward-pointing kite (longer along heading axis).
+    const tip   = radius * 1.55;
+    const back  = radius * 0.95;
+    const sideR = radius * 0.85;
+    const sx = Math.cos(ang), sy = Math.sin(ang);
+    const nx = -sy, ny = sx;
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx + sx * tip,            cy + sy * tip);
+    ctx2d.lineTo(cx + nx * sideR,          cy + ny * sideR);
+    ctx2d.lineTo(cx - sx * back,           cy - sy * back);
+    ctx2d.lineTo(cx - nx * sideR,          cy - ny * sideR);
+    ctx2d.closePath();
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+  } else if (robotClass === "support") {
+    // Rounded square + cross emblem.
+    const half = radius * 0.95;
+    const r = radius * 0.3;
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx - half + r, cy - half);
+    ctx2d.lineTo(cx + half - r, cy - half);
+    ctx2d.quadraticCurveTo(cx + half, cy - half, cx + half, cy - half + r);
+    ctx2d.lineTo(cx + half, cy + half - r);
+    ctx2d.quadraticCurveTo(cx + half, cy + half, cx + half - r, cy + half);
+    ctx2d.lineTo(cx - half + r, cy + half);
+    ctx2d.quadraticCurveTo(cx - half, cy + half, cx - half, cy + half - r);
+    ctx2d.lineTo(cx - half, cy - half + r);
+    ctx2d.quadraticCurveTo(cx - half, cy - half, cx - half + r, cy - half);
+    ctx2d.closePath();
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+    // Cross emblem
+    const armW = radius * 0.22;
+    const armL = radius * 0.55;
+    ctx2d.fillStyle = "rgba(0,0,0,0.45)";
+    ctx2d.fillRect(cx - armW, cy - armL, armW * 2, armL * 2);
+    ctx2d.fillRect(cx - armL, cy - armW, armL * 2, armW * 2);
+  } else {
+    // brawler — beefy hexagon
+    polygon(6, radius * 1.2, null, Math.PI / 6);
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+    // Inner "knuckle" stripe
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx - radius * 0.7, cy);
+    ctx2d.lineTo(cx + radius * 0.7, cy);
+    ctx2d.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx2d.lineWidth = 1.5;
+    ctx2d.stroke();
+  }
+}
+
 function drawRobot(x, y, health, maxHealth, energy, maxEnergy, teamId, label, isAlive, action, robotClass, extras = {}) {
   const s = canvasScale();
   const cx = x * s;
@@ -3504,19 +3603,13 @@ function drawRobot(x, y, health, maxHealth, energy, maxEnergy, teamId, label, is
     ctx.stroke();
   }
 
-  // Body with gradient
+  // Body with gradient — silhouette depends on class so a glance reveals role.
   ctx.save();
   ctx.globalAlpha = bodyAlpha;
   const bodyGrad = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, 0, cx, cy, radius);
   bodyGrad.addColorStop(0, color);
   bodyGrad.addColorStop(1, teamId === 0 ? "#006688" : "#881122");
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fillStyle = bodyGrad;
-  ctx.fill();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+  drawClassBody(ctx, cx, cy, radius, robotClass, color, bodyGrad, heading);
 
   // Heading arrow — small triangle at the front so it's obvious which way
   // the robot is facing. Only meaningful when heading is non-zero.
