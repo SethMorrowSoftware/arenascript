@@ -80,7 +80,8 @@
   .btn-compile-run {
     display: none;
   }
-  .view-content-library {
+  .view-content-library,
+  .view-content-community {
     padding: 16px;
   }
   .library-grid {

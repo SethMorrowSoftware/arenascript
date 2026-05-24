@@ -24,6 +24,9 @@
           <span class="tab-icon">&#128218;</span> My Bots
           <span class="tab-count" id="tab-count-library">0</span>
         </button>
+        <button class="view-tab" data-view="community" role="tab" aria-selected="false">
+          <span class="tab-icon">&#127758;</span> Community
+        </button>
       </nav>
     </div>
     <div class="top-bar-actions">
@@ -278,6 +281,40 @@
         </div>
       </div>
 
+      <!-- Community sidebar content: filters -->
+      <div class="sidebar-panel" data-sidebar="community" hidden>
+        <div class="sidebar-header">Community Bots</div>
+        <div class="sidebar-section">
+          <label for="community-search">Search</label>
+          <input id="community-search" type="text" class="opponent-select" placeholder="Name or author" autocomplete="off">
+        </div>
+        <div class="sidebar-section">
+          <label for="community-class">Class</label>
+          <select id="community-class" class="opponent-select">
+            <option value="">All classes</option>
+            <option value="brawler">Brawler</option>
+            <option value="ranger">Ranger</option>
+            <option value="tank">Tank</option>
+            <option value="support">Support</option>
+          </select>
+        </div>
+        <div class="sidebar-section">
+          <label for="community-sort">Sort</label>
+          <select id="community-sort" class="opponent-select">
+            <option value="recent" selected>Most recent</option>
+            <option value="oldest">Oldest</option>
+            <option value="name">Name (A-Z)</option>
+          </select>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-community-refresh" class="btn btn-run btn-block">Refresh</button>
+        </div>
+        <div class="sidebar-help" style="padding: 0 14px;">
+          Bots shared publicly by other ArenaScript players. Install one to your library to use it in battles.
+        </div>
+      </div>
+
       <!-- Library sidebar content: filters -->
       <div class="sidebar-panel" data-sidebar="library" hidden>
         <div class="sidebar-header">Filter</div>
@@ -487,6 +524,26 @@
           <div class="library-empty-icon">&#129302;</div>
           <h3>No bots in your library yet</h3>
           <p>Write a bot in the <b>Builder</b> and click <b>Save to Library</b>, or drop a <code>.arena</code> file above.</p>
+        </div>
+      </div>
+
+      <!-- ============ COMMUNITY VIEW ============ -->
+      <div class="view-content view-content-community" data-view-content="community" hidden>
+        <div class="library-header">
+          <div class="library-title">
+            <h2>Community Bots</h2>
+            <span class="library-subtitle">Public bots shared by ArenaScript players. Install a copy to your library to use it in battles.</span>
+          </div>
+          <div class="library-actions">
+            <span id="community-count" class="community-count">—</span>
+          </div>
+        </div>
+        <div id="community-banner" class="community-banner" hidden></div>
+        <div id="community-grid" class="library-grid community-grid"></div>
+        <div id="community-empty" class="library-empty" hidden>
+          <div class="library-empty-icon">&#127758;</div>
+          <h3>No public bots yet</h3>
+          <p>Sign in and click <b>Share</b> on one of your bots in <b>My Bots</b> to be the first.</p>
         </div>
       </div>
 

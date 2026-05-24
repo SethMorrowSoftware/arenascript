@@ -468,6 +468,10 @@
   display: none;
 }
 
+.view-content-community[hidden] {
+  display: none;
+}
+
 /* ---- Workspace ---- */
 
 .workspace {

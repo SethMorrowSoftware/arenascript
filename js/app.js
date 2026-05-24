@@ -5592,7 +5592,7 @@ function toast(message, type = "info", timeout = 3500) {
 // ============================================================================
 
 function setView(name) {
-  if (name !== "builder" && name !== "arena" && name !== "library") return;
+  if (name !== "builder" && name !== "arena" && name !== "library" && name !== "community") return;
 
   const leavingArena = currentView === "arena" && name !== "arena";
   currentView = name;
@@ -5620,14 +5620,19 @@ function setView(name) {
     panel.hidden = panel.dataset.sidebar !== name;
   });
 
-  // Main view content — library is a separate area; builder+arena share workspace
+  // Main view content — library + community are separate areas; builder+arena share workspace
   const workspace = document.querySelector('[data-view-content="workspace"]');
   const libraryView = document.querySelector('[data-view-content="library"]');
-  if (workspace) workspace.hidden = name === "library";
+  const communityView = document.querySelector('[data-view-content="community"]');
+  const isFullPageView = name === "library" || name === "community";
+  if (workspace) workspace.hidden = isFullPageView;
   if (libraryView) libraryView.hidden = name !== "library";
+  if (communityView) communityView.hidden = name !== "community";
 
   if (name === "library") {
     renderLibrary();
+  } else if (name === "community") {
+    renderCommunity();
   } else if (name === "arena") {
     // Resize canvas to fill the arena pane since editor collapses
     requestAnimationFrame(resizeArenaCanvasForCurrentView);
@@ -5810,6 +5815,12 @@ async function refreshCurrentUser() {
     currentUser = null;
   }
   updateAuthUi();
+  if (currentUser) {
+    // Keep share state on library cards accurate after sign-in / page reload.
+    refreshVisibilityCache().then(() => {
+      if (currentView === "library") renderLibrary();
+    }).catch(() => {});
+  }
 }
 
 async function syncRemoteBotsIntoLibrary() {
@@ -5819,6 +5830,7 @@ async function syncRemoteBotsIntoLibrary() {
   let imported = 0;
   for (const rb of bots ?? []) {
     if (!rb?.id || !rb?.name) continue;
+    if (rb?.visibility) setVisibilityCacheEntry(rb.id, rb.visibility);
     const mappedLocalId = map[rb.id];
     const mappedLocal = mappedLocalId ? BotLibrary.getById(mappedLocalId) : null;
     const versions = await ApiClient.listRemoteBotVersions(rb.id);
@@ -5849,6 +5861,7 @@ btnAuthLogout?.addEventListener("click", async () => {
   await ApiClient.logout();
   currentUser = null;
   updateAuthUi();
+  if (currentView === "library") renderLibrary();
   toast("Signed out.", "info");
 });
 btnSyncCloud?.addEventListener("click", async () => {
@@ -5992,6 +6005,243 @@ function classIconLetter(cls) {
   return { brawler: "B", ranger: "R", tank: "T", support: "S" }[cls] ?? "?";
 }
 
+// ---------------------------------------------------------------------------
+// Community / sharing — visibility cache keyed by remote bot id
+// ---------------------------------------------------------------------------
+
+const VISIBILITY_CACHE_KEY = "arenascript.remote.visibility";
+
+function getVisibilityCache() {
+  try {
+    const raw = localStorage.getItem(VISIBILITY_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function setVisibilityCacheEntry(remoteId, visibility) {
+  if (!remoteId) return;
+  const cache = getVisibilityCache();
+  if (visibility) cache[remoteId] = visibility;
+  else delete cache[remoteId];
+  localStorage.setItem(VISIBILITY_CACHE_KEY, JSON.stringify(cache));
+}
+
+/** Find the remoteId for a local bot id, scanning the remote→local map. */
+function findRemoteIdForLocal(localId) {
+  if (!localId) return null;
+  const map = getRemoteBotMap();
+  for (const [remoteId, mappedLocal] of Object.entries(map)) {
+    if (mappedLocal === localId) return remoteId;
+  }
+  return null;
+}
+
+/** Pull the latest visibility for every remote bot the user owns into the cache. */
+async function refreshVisibilityCache() {
+  if (!currentUser) return;
+  try {
+    const { bots } = await ApiClient.listRemoteBots();
+    for (const rb of bots ?? []) {
+      if (rb?.id && rb?.visibility) setVisibilityCacheEntry(rb.id, rb.visibility);
+    }
+  } catch {
+    // Non-fatal — the UI just won't show share state until next sync.
+  }
+}
+
+async function toggleBotShared(localBot) {
+  if (!currentUser) {
+    toast("Sign in to share your bot.", "warn");
+    return;
+  }
+  let remoteId = findRemoteIdForLocal(localBot.id);
+
+  // First-time share: upload to cloud, then set public.
+  if (!remoteId) {
+    try {
+      const created = await ApiClient.createRemoteBot({
+        name: localBot.name,
+        sourceCode: localBot.source,
+        visibility: "public",
+      });
+      remoteId = created?.bot?.id;
+      if (remoteId) {
+        rememberRemoteMapping(remoteId, localBot.id);
+        setVisibilityCacheEntry(remoteId, "public");
+        toast(`"${localBot.name}" shared to community.`, "success");
+        renderLibrary();
+      } else {
+        toast("Couldn't share bot (no id returned).", "error");
+      }
+    } catch (e) {
+      toast(`Share failed: ${e.message ?? String(e)}`, "error");
+    }
+    return;
+  }
+
+  const cache = getVisibilityCache();
+  const current = cache[remoteId] || "private";
+  const next = current === "public" ? "private" : "public";
+  try {
+    await ApiClient.setBotVisibility({ id: remoteId, visibility: next });
+    setVisibilityCacheEntry(remoteId, next);
+    toast(next === "public"
+      ? `"${localBot.name}" is now public.`
+      : `"${localBot.name}" is now private.`, "success");
+    renderLibrary();
+  } catch (e) {
+    toast(`Couldn't change visibility: ${e.message ?? String(e)}`, "error");
+  }
+}
+
+function botSharedState(localBot) {
+  const remoteId = findRemoteIdForLocal(localBot.id);
+  if (!remoteId) return { remoteId: null, visibility: null };
+  const cache = getVisibilityCache();
+  return { remoteId, visibility: cache[remoteId] || null };
+}
+
+// ---------------------------------------------------------------------------
+// Community view
+// ---------------------------------------------------------------------------
+
+const communityGridEl = document.getElementById("community-grid");
+const communityEmptyEl = document.getElementById("community-empty");
+const communityCountEl = document.getElementById("community-count");
+const communityBannerEl = document.getElementById("community-banner");
+const communitySearchEl = document.getElementById("community-search");
+const communityClassEl = document.getElementById("community-class");
+const communitySortEl = document.getElementById("community-sort");
+
+let _communityCache = null;       // Last server response
+let _communityRequest = 0;        // Race-prevention token
+
+/** Extract the bot class from a stored source string (regex-based). */
+function classFromSource(src) {
+  const m = String(src ?? "").match(/\bclass\s*:\s*"([^"]+)"/);
+  if (!m) return "brawler";
+  const c = m[1].trim().toLowerCase();
+  return ["brawler", "ranger", "tank", "support"].includes(c) ? c : "brawler";
+}
+
+function applyCommunityClientFilter(bots) {
+  const cls = communityClassEl?.value || "";
+  if (!cls) return bots;
+  return bots.filter((b) => classFromSource(b.source_code) === cls);
+}
+
+async function renderCommunity() {
+  if (!communityGridEl) return;
+
+  const reqId = ++_communityRequest;
+  communityGridEl.innerHTML = `<div class="community-loading">Loading community bots…</div>`;
+  if (communityEmptyEl) communityEmptyEl.hidden = true;
+  if (communityCountEl) communityCountEl.textContent = "—";
+  if (communityBannerEl) {
+    communityBannerEl.hidden = true;
+    communityBannerEl.textContent = "";
+  }
+
+  let payload;
+  try {
+    payload = await ApiClient.listCommunityBots({
+      q: communitySearchEl?.value?.trim() || "",
+      sort: communitySortEl?.value || "recent",
+      limit: 100,
+    });
+  } catch (e) {
+    if (reqId !== _communityRequest) return;
+    communityGridEl.innerHTML = "";
+    if (communityBannerEl) {
+      communityBannerEl.hidden = false;
+      communityBannerEl.textContent = `Couldn't reach the community server (${e.message ?? "network error"}). Make sure the backend is configured.`;
+    }
+    return;
+  }
+  if (reqId !== _communityRequest) return;
+
+  _communityCache = payload;
+  const filtered = applyCommunityClientFilter(payload.bots ?? []);
+
+  if (communityCountEl) {
+    const total = payload.total ?? filtered.length;
+    communityCountEl.textContent = `${filtered.length}${filtered.length !== total ? ` of ${total}` : ""} bot${total === 1 ? "" : "s"}`;
+  }
+
+  if (filtered.length === 0) {
+    communityGridEl.innerHTML = "";
+    if (communityEmptyEl) communityEmptyEl.hidden = false;
+    return;
+  }
+
+  communityGridEl.innerHTML = "";
+  for (const bot of filtered) {
+    const cls = classFromSource(bot.source_code);
+    const card = document.createElement("div");
+    card.className = "bot-card community-card";
+    card.dataset.id = bot.id;
+    card.innerHTML = `
+      <div class="bot-card-header">
+        <div class="bot-class-icon ${cls}">${classIconLetter(cls)}</div>
+        <div class="bot-card-title">
+          <div class="bot-card-name" title="${escapeHtml(bot.name)}">${escapeHtml(bot.name)}</div>
+          <div class="bot-card-meta">${cls} • by @${escapeHtml(bot.author_username || "anon")}</div>
+        </div>
+        <span class="community-pill">PUBLIC</span>
+      </div>
+      <div class="community-stats">${renderStatBars(cls)}</div>
+      <div class="bot-card-source"><code>${escapeHtml(String(bot.source_code || "").split("\n").slice(0, 5).join("\n"))}</code></div>
+      <div class="bot-card-footer">
+        <span class="bot-card-date">${formatDate(bot.updated_at || bot.created_at)}</span>
+        <div class="bot-card-actions">
+          <button class="bc-btn bc-btn-primary" data-act="install" title="Save a copy to your library">Install</button>
+          <button class="bc-btn" data-act="preview" title="Open in editor (read-only paste)">View</button>
+        </div>
+      </div>`;
+
+    card.querySelector('[data-act="install"]').addEventListener("click", () => {
+      const src = bot.source_code;
+      if (!src) {
+        toast("No source code on this entry.", "error");
+        return;
+      }
+      const overrideName = `${bot.name} (by @${bot.author_username || "anon"})`;
+      const r = BotLibrary.addBot(src, { overrideName });
+      if (r.ok) {
+        toast(`Installed "${bot.name}" to your library.`, "success");
+      } else {
+        toast(`Couldn't install: ${(r.errors || []).join(", ") || "unknown error"}`, "error");
+      }
+    });
+    card.querySelector('[data-act="preview"]').addEventListener("click", () => {
+      if (editorEl && bot.source_code) {
+        editorEl.value = bot.source_code;
+        currentEditorBotName = bot.name || "Community Bot";
+        compiledPlayer = null;
+        if (btnRun) btnRun.disabled = true;
+        updateHighlighting?.();
+        updateLineNumbers?.();
+        setView("builder");
+        toast(`Previewing "${bot.name}" in editor.`, "info");
+      }
+    });
+
+    communityGridEl.appendChild(card);
+  }
+}
+
+communitySearchEl?.addEventListener("input", () => {
+  clearTimeout(communitySearchEl._t);
+  communitySearchEl._t = setTimeout(renderCommunity, 250);
+});
+communitySortEl?.addEventListener("change", renderCommunity);
+communityClassEl?.addEventListener("change", renderCommunity);
+document.getElementById("btn-community-refresh")?.addEventListener("click", renderCommunity);
+
 function renderLibrary() {
   if (!libraryGridEl) return;
   const all = BotLibrary.getAll();
@@ -6016,6 +6266,16 @@ function renderLibrary() {
     const card = document.createElement("div");
     card.className = "bot-card";
     card.dataset.id = bot.id;
+    const shared = botSharedState(bot);
+    const sharedPill = shared.visibility === "public"
+      ? `<span class="community-pill" title="Visible to all players in the Community list">PUBLIC</span>`
+      : "";
+    const shareLabel = shared.visibility === "public" ? "Unshare" : "Share";
+    const shareTitle = !currentUser
+      ? "Sign in to share bots with the community"
+      : shared.visibility === "public"
+      ? "Hide this bot from the community list"
+      : "Publish this bot to the community list";
     card.innerHTML = `
       <div class="bot-card-header">
         <div class="bot-class-icon ${bot.class}">${classIconLetter(bot.class)}</div>
@@ -6023,6 +6283,7 @@ function renderLibrary() {
           <div class="bot-card-name" title="${escapeHtml(bot.name)}">${escapeHtml(bot.name)}</div>
           <div class="bot-card-meta">${bot.class}${bot.author ? " • " + escapeHtml(bot.author) : ""}</div>
         </div>
+        ${sharedPill}
       </div>
       <div class="bot-card-source"><code>${escapeHtml(bot.source.split("\n").slice(0, 5).join("\n"))}</code></div>
       <div class="bot-card-footer">
@@ -6031,6 +6292,7 @@ function renderLibrary() {
           <button class="bc-btn" data-act="edit"   title="Load in Builder">Edit</button>
           <button class="bc-btn" data-act="battle" title="Use as your bot in Arena">Battle</button>
           <button class="bc-btn" data-act="opponent" title="Set as opponent">Opp</button>
+          <button class="bc-btn bc-btn-share" data-act="share" title="${escapeHtml(shareTitle)}" ${currentUser ? "" : "disabled"}>${shareLabel}</button>
           <button class="bc-btn" data-act="export" title="Download .arena">Export</button>
           <button class="bc-btn bc-btn-danger" data-act="delete" title="Delete">&times;</button>
         </div>
@@ -6053,6 +6315,9 @@ function renderLibrary() {
       opponentSelect.value = bot.id;
       setView("arena");
       toast(`"${bot.name}" set as opponent.`, "info");
+    });
+    card.querySelector('[data-act="share"]').addEventListener("click", () => {
+      toggleBotShared(bot);
     });
     card.querySelector('[data-act="export"]').addEventListener("click", () => {
       BotLibrary.exportBot(bot.id);

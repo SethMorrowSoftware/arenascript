@@ -88,6 +88,28 @@ export async function listRemoteBotVersions(botId) {
   return request(`/bots/versions.php?botId=${q}`, { method: "GET", auth: true });
 }
 
+export async function setBotVisibility({ id, visibility }) {
+  return request("/bots/visibility.php", {
+    method: "POST",
+    auth: true,
+    body: { id, visibility },
+  });
+}
+
+export async function listCommunityBots({ q = "", sort = "recent", limit = 50, offset = 0 } = {}) {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (sort) params.set("sort", sort);
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  return request(`/bots/community.php?${params.toString()}`, { method: "GET" });
+}
+
+export async function getCommunityBot(id) {
+  const q = encodeURIComponent(id);
+  return request(`/bots/community.php?id=${q}`, { method: "GET" });
+}
+
 export function hasAuthToken() {
   return !!getToken();
 }
