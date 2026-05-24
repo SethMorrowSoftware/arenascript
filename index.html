@@ -527,7 +527,12 @@
 
             <!-- Match Results scorecard (revealed when the replay finishes) -->
             <div id="match-results" class="match-results">
-              <div class="match-results-title">Match Report</div>
+              <div class="match-results-header">
+                <div class="match-results-title">Match Report</div>
+                <button id="btn-share-card" class="btn btn-compile share-card-btn" title="Generate a shareable PNG of this match">
+                  <span aria-hidden="true">&#128247;</span> Share Card
+                </button>
+              </div>
               <div id="results-content"></div>
               <div id="results-robot-detail" class="result-robot-detail"></div>
             </div>

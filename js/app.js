@@ -20,6 +20,7 @@ import * as BotLibrary from "./bot-library.js";
 import * as ApiClient from "./api-client.js";
 import * as SFX from "./ui/sfx.js";
 import * as Achievements from "./ui/achievements.js";
+import { generateShareCard, downloadBlob } from "./ui/share-card.js";
 import {
   installShortcutHelp,
   installLangReference,
@@ -7725,6 +7726,41 @@ tournSizeEl?.addEventListener("change", () => {
   const cap = tournRosterCapacity();
   if (_tournRoster.length > cap) _tournRoster = _tournRoster.slice(0, cap);
   renderTournamentView();
+});
+
+// ============================================================================
+// Share card — download a PNG of the current match result
+// ============================================================================
+
+document.getElementById("btn-share-card")?.addEventListener("click", async () => {
+  if (!lastMatchResult) {
+    toast("Run a match first.", "warn");
+    return;
+  }
+  try {
+    const arena = getArenaPreset(getMatchArenaId());
+    const durationLabel = `${(lastMatchResult.tickCount / 30).toFixed(1)}s`;
+    const winnerSide = lastMatchResult.winner;
+    let winnerLabel = null;
+    if (winnerSide === 0 || winnerSide === 1) {
+      const participants = lastMatchResult.replay?.metadata?.participants ?? [];
+      // Use the player name if Team 0 won and the player was on it; otherwise
+      // fall back to a "Team X Wins" framing.
+      const playerOnWinning = participants.some((p) => p.teamId === winnerSide && p.playerId === "player");
+      if (playerOnWinning) winnerLabel = "YOU WIN";
+    }
+    const { blob } = await generateShareCard(lastMatchResult, {
+      arenaName: arena?.name || "Arena",
+      durationLabel,
+      winnerLabel,
+    });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    downloadBlob(blob, `arenascript-match-${stamp}.png`);
+    toast("Share card downloaded.", "success");
+    SFX.playClick();
+  } catch (e) {
+    toast(`Share card failed: ${e.message ?? String(e)}`, "error");
+  }
 });
 
 // ============================================================================
