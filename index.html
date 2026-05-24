@@ -36,6 +36,9 @@
       <button id="btn-open-tour" class="btn btn-ghost" title="Re-open the onboarding tour">
         Tour
       </button>
+      <button id="btn-quick-battle" class="btn btn-quick-battle" title="Pick robots and fight — no code required">
+        <span aria-hidden="true">&#9876;</span> Quick Battle
+      </button>
       <span id="auth-status" class="shortcut-hint">Guest</span>
       <button id="btn-auth-open" class="btn btn-compile">Sign In</button>
       <button id="btn-auth-logout" class="btn btn-save" hidden>Sign Out</button>
@@ -546,6 +549,36 @@
         <div class="tb-footer-actions">
           <button id="btn-tb-cancel" class="tb-btn-secondary" type="button">Cancel</button>
           <button id="btn-tb-run" class="tb-btn-primary" type="button">Run Battle</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bot Picker Modal — visual roster picker used by Team Builder -->
+  <div id="bot-picker-modal" class="tb-modal-overlay" hidden role="dialog" aria-label="Pick a robot">
+    <div class="tb-modal bp-modal">
+      <div class="tb-modal-header">
+        <h2 id="bot-picker-title">Pick a Robot</h2>
+        <button id="btn-close-bot-picker" class="tb-modal-close" title="Close">&times;</button>
+      </div>
+      <div class="bp-toolbar">
+        <input id="bot-picker-search" class="bp-search" type="text" placeholder="Search robots…" autocomplete="off" spellcheck="false" />
+        <div class="bp-filters" role="group" aria-label="Filter by class">
+          <button class="bp-filter active" data-bp-class="" type="button">All</button>
+          <button class="bp-filter" data-bp-class="brawler" type="button">Brawler</button>
+          <button class="bp-filter" data-bp-class="ranger" type="button">Ranger</button>
+          <button class="bp-filter" data-bp-class="tank" type="button">Tank</button>
+          <button class="bp-filter" data-bp-class="support" type="button">Support</button>
+        </div>
+      </div>
+      <div class="tb-modal-body bp-body">
+        <div id="bot-picker-grid" class="bp-grid" role="listbox" aria-label="Available robots"></div>
+        <div id="bot-picker-empty" class="bp-empty" hidden>No robots match those filters.</div>
+      </div>
+      <div class="tb-modal-footer">
+        <span class="bp-footer-hint">Tap a robot to add it to your roster.</span>
+        <div class="tb-footer-actions">
+          <button id="btn-bot-picker-cancel" class="tb-btn-secondary" type="button">Cancel</button>
         </div>
       </div>
     </div>

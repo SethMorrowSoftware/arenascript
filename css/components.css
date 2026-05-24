@@ -875,3 +875,355 @@
   font-family: var(--font-mono);
   color: var(--accent-cyan);
 }
+
+/* ============================================================================
+   Quick Battle button (top bar) — entry point to the Team Builder
+   ============================================================================ */
+
+.btn-quick-battle {
+  background: linear-gradient(135deg, var(--accent-cyan) 0%, #2dd4bf 100%);
+  color: #001a22;
+  border: none;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 7px 14px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-glow-cyan);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-quick-battle:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.btn-quick-battle span {
+  margin-right: 4px;
+}
+
+/* ============================================================================
+   Team Builder — richer card (icon + stats + change/remove)
+   ============================================================================ */
+
+.tb-bot-card {
+  align-items: stretch;
+  padding: 10px 12px;
+  cursor: default;
+}
+
+.tb-bot-card .tb-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font-size: 16px;
+}
+
+.tb-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tb-card-name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.tb-card-meta .dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+.tb-card-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.tb-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.tb-stat-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 0.6px;
+  font-weight: 700;
+}
+
+.tb-stat-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tb-stat-bar-fill {
+  height: 100%;
+  background: var(--accent-cyan);
+  border-radius: 2px;
+}
+
+.tb-stat-bar-fill.hp { background: var(--accent-green); }
+.tb-stat-bar-fill.spd { background: var(--accent-cyan); }
+.tb-stat-bar-fill.dmg { background: var(--accent-red); }
+.tb-stat-bar-fill.rng { background: var(--accent-orange); }
+
+.tb-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.tb-change-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tb-change-btn:hover {
+  color: var(--accent-cyan);
+  border-color: rgba(0, 212, 255, 0.4);
+  background: var(--accent-cyan-dim);
+}
+
+.tb-card-you {
+  border-color: rgba(0, 212, 255, 0.5);
+  box-shadow: 0 0 12px rgba(0, 212, 255, 0.12);
+}
+
+/* ============================================================================
+   Bot Picker Modal — visual grid for choosing a robot
+   ============================================================================ */
+
+.bp-modal {
+  width: 880px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+}
+
+.bp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  flex-wrap: wrap;
+}
+
+.bp-search {
+  flex: 1;
+  min-width: 180px;
+  padding: 7px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.bp-search:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.15);
+}
+
+.bp-filters {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.bp-filter {
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.bp-filter:hover { color: var(--text-primary); }
+
+.bp-filter.active {
+  background: var(--accent-cyan);
+  color: #001a22;
+  border-color: var(--accent-cyan);
+}
+
+.bp-body {
+  padding: 16px 20px;
+  display: block;
+}
+
+.bp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  width: 100%;
+}
+
+.bp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  transition: all var(--transition-fast);
+}
+
+.bp-card:hover {
+  border-color: var(--accent-cyan);
+  background: var(--accent-cyan-dim);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.bp-card:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+.bp-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bp-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.bp-card-icon.brawler { background: var(--accent-red-dim); color: var(--accent-red); }
+.bp-card-icon.ranger  { background: var(--accent-cyan-dim); color: var(--accent-cyan); }
+.bp-card-icon.tank    { background: var(--accent-orange-dim); color: var(--accent-orange); }
+.bp-card-icon.support { background: var(--accent-green-dim); color: var(--accent-green); }
+
+.bp-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.bp-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-card-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.bp-card-tag {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  min-height: 30px;
+}
+
+.bp-card-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.bp-card-badges {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.bp-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+.bp-badge-editor { background: rgba(0, 212, 255, 0.15); color: var(--accent-cyan); }
+.bp-badge-user   { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); }
+.bp-badge-diff-1 { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); }
+.bp-badge-diff-2 { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
+.bp-badge-diff-3 { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+
+.bp-empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.bp-footer-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}

@@ -2488,6 +2488,33 @@ const AUTOFILL_POOL = [
   "hivemind", "phantom", "warden", "overclock", "oracle", "zealot", "predator",
 ];
 
+// Display metadata for the visual bot picker: tagline + role + difficulty.
+// Difficulty 1 = great first pick, 3 = advanced behavior worth studying.
+const BOT_META = {
+  rookie:    { tagline: "Walks forward and swings. Learn the basics.",       role: "Tutorial",  difficulty: 1 },
+  scout:     { tagline: "Patrols waypoints and logs what it sees.",          role: "Tutorial",  difficulty: 1 },
+  bruiser:   { tagline: "Closes the gap and brawls until something dies.",   role: "Aggressor", difficulty: 1 },
+  kiter:     { tagline: "Stays at range, peppers from a safe distance.",     role: "Skirmisher",difficulty: 1 },
+  fortress:  { tagline: "Anchors objectives, eats damage, returns fire.",    role: "Anchor",    difficulty: 1 },
+  healer:    { tagline: "Sticks to allies and keeps them topped up.",        role: "Support",   difficulty: 1 },
+  flanker:   { tagline: "Skirts the edges and picks off stragglers.",        role: "Flanker",   difficulty: 2 },
+  sentinel:  { tagline: "Overwatches a lane, punishes anyone who crosses.",  role: "Defender",  difficulty: 2 },
+  hivemind:  { tagline: "Coordinates with teammates to focus-fire targets.", role: "Squad",     difficulty: 2 },
+  phantom:   { tagline: "Cloaks in, executes a kill, fades out.",            role: "Assassin",  difficulty: 3 },
+  warden:    { tagline: "Mines chokepoints and locks down the objective.",   role: "Zoner",     difficulty: 2 },
+  overclock: { tagline: "Switches modes mid-fight to counter the threat.",   role: "Adaptive",  difficulty: 3 },
+  oracle:    { tagline: "Predicts movement, leads shots, dodges incoming.",  role: "Predictor", difficulty: 3 },
+  zealot:    { tagline: "Hunts attackers, prioritizes weakened targets.",    role: "Reactive",  difficulty: 2 },
+  predator:  { tagline: "Showcase apex predator using the full sensor kit.", role: "Apex",      difficulty: 3 },
+};
+
+const BOT_PICKER_ORDER = [
+  "rookie", "scout",
+  "bruiser", "kiter", "fortress", "healer", "flanker", "sentinel",
+  "hivemind", "phantom", "warden", "overclock",
+  "oracle", "zealot", "predator",
+];
+
 /** The currently-selected quick-match mode (falls back to a duel). */
 function getMatchMode() {
   const v = matchModeSelect?.value;
@@ -4804,33 +4831,73 @@ function tbAutofillKey(i) {
   return AUTOFILL_POOL[((i % AUTOFILL_POOL.length) + AUTOFILL_POOL.length) % AUTOFILL_POOL.length];
 }
 
-function tbCreateBotCard(team, botKey) {
+/**
+ * Approximate "ceiling" stats used to normalize bars in the picker. Tuned to
+ * what currently exists in CLASS_STATS so the strongest class in each axis
+ * pegs the bar at 100%.
+ */
+const STAT_CEILINGS = { health: 150, moveSpeed: 2.2, attackDamage: 14, attackRange: 8.0 };
+
+function renderStatBars(cls) {
+  const stats = CLASS_STATS[cls] || CLASS_STATS.brawler;
+  const pct = (val, ceil) => Math.max(8, Math.min(100, Math.round((val / ceil) * 100)));
+  const row = (label, val, ceil, kind) => `
+    <div class="tb-stat" title="${label}: ${val}">
+      <span class="tb-stat-label">${label}</span>
+      <div class="tb-stat-bar"><div class="tb-stat-bar-fill ${kind}" style="width:${pct(val, ceil)}%"></div></div>
+    </div>`;
+  return `
+    ${row("HP",  stats.health,       STAT_CEILINGS.health,       "hp")}
+    ${row("SPD", stats.moveSpeed,    STAT_CEILINGS.moveSpeed,    "spd")}
+    ${row("DMG", stats.attackDamage, STAT_CEILINGS.attackDamage, "dmg")}
+    ${row("RNG", stats.attackRange,  STAT_CEILINGS.attackRange,  "rng")}`;
+}
+
+function tbDisplayName(key, entry) {
+  if (entry?.isEditor) return `${entry.name} (you)`;
+  return entry?.name ?? key;
+}
+
+function tbRenderCardContent(card, botKey) {
   const entry = getBotEntry(botKey);
   const cls = entry?.class ?? "brawler";
-  const card = document.createElement("div");
-  card.className = "tb-bot-card";
-  card.dataset.team = team;
-
-  // `cls` is whitelisted upstream but escape defensively against a corrupted
-  // localStorage entry injecting HTML.
   const safeCls = escapeHtml(cls);
+  const meta = BOT_META[botKey];
+  const role = entry?.isEditor ? "Your bot" : (entry?.isUser ? "My Bot" : (meta?.role ?? "Preset"));
+
+  card.dataset.botKey = botKey;
+  card.classList.toggle("tb-card-you", !!entry?.isEditor);
   card.innerHTML = `
     <div class="tb-card-icon ${safeCls}">${escapeHtml(botIconLetter(botKey))}</div>
     <div class="tb-card-body">
-      <select class="tb-card-select">${buildBotSelectOptions(botKey, true)}</select>
-      <span class="tb-card-class">${safeCls}</span>
+      <span class="tb-card-name">${escapeHtml(tbDisplayName(botKey, entry))}</span>
+      <span class="tb-card-meta">
+        <span>${safeCls}</span><span class="dot"></span><span>${escapeHtml(role)}</span>
+      </span>
+      <div class="tb-card-stats">${renderStatBars(cls)}</div>
     </div>
-    <button class="tb-remove-btn" type="button" title="Remove">&times;</button>`;
+    <div class="tb-card-actions">
+      <button class="tb-change-btn" type="button" title="Pick a different robot">Change</button>
+      <button class="tb-remove-btn" type="button" title="Remove">&times;</button>
+    </div>`;
+}
 
-  const select = card.querySelector(".tb-card-select");
-  const icon = card.querySelector(".tb-card-icon");
-  const classLabel = card.querySelector(".tb-card-class");
+function tbCreateBotCard(team, botKey) {
+  const card = document.createElement("div");
+  card.className = "tb-bot-card";
+  card.dataset.team = team;
+  tbRenderCardContent(card, botKey);
 
-  select.addEventListener("change", () => {
-    const newCls = tbGetBotClass(select.value);
-    icon.className = `tb-card-icon ${newCls}`;
-    icon.textContent = botIconLetter(select.value);
-    classLabel.textContent = newCls;
+  card.querySelector(".tb-change-btn").addEventListener("click", () => {
+    openBotPicker({
+      title: "Replace robot",
+      currentKey: card.dataset.botKey,
+      includeEditor: true,
+      onPick: (newKey) => {
+        tbRenderCardContent(card, newKey);
+        tbUpdateInfo();
+      },
+    });
   });
 
   card.querySelector(".tb-remove-btn").addEventListener("click", () => {
@@ -4966,7 +5033,7 @@ function tbCollectRoster(container, teamFn, nameState) {
   const cards = container ? [...container.querySelectorAll(".tb-bot-card")] : [];
   const out = [];
   for (let i = 0; i < cards.length; i++) {
-    const key = cards[i].querySelector(".tb-card-select")?.value;
+    const key = cards[i].dataset.botKey;
     const entry = getBotEntry(key);
     if (!entry) { logToConsole(`Unknown bot: ${key}`, "error"); return null; }
     let compiled;
@@ -5223,17 +5290,189 @@ canvasEl?.addEventListener("mousemove", (e) => {
 
 canvasEl?.addEventListener("mouseleave", hideCanvasTooltip);
 
+// ============================================================================
+// Bot Picker — visual modal for choosing a robot
+// ============================================================================
+
+const botPickerModal = document.getElementById("bot-picker-modal");
+const botPickerTitle = document.getElementById("bot-picker-title");
+const botPickerGrid = document.getElementById("bot-picker-grid");
+const botPickerSearch = document.getElementById("bot-picker-search");
+const botPickerEmpty = document.getElementById("bot-picker-empty");
+
+let _bpOnPick = null;
+let _bpFilterClass = "";
+let _bpQuery = "";
+let _bpIncludeEditor = true;
+let _bpCurrentKey = null;
+let _bpLastFocused = null;
+
+function bpClassFor(key) {
+  return getBotEntry(key)?.class ?? "brawler";
+}
+
+function bpDifficulty(key) {
+  return BOT_META[key]?.difficulty ?? 2;
+}
+
+function bpAllChoices() {
+  const items = [];
+  if (_bpIncludeEditor) {
+    items.push({ key: "__editor__", source: "editor" });
+  }
+  for (const key of BOT_PICKER_ORDER) {
+    if (BOT_PRESETS[key]) items.push({ key, source: "preset" });
+  }
+  for (const bot of BotLibrary.getAll()) {
+    items.push({ key: bot.id, source: "user" });
+  }
+  return items;
+}
+
+function bpRenderCard({ key, source }) {
+  const entry = getBotEntry(key);
+  if (!entry) return "";
+  const cls = entry.class ?? "brawler";
+  const safeCls = escapeHtml(cls);
+  const meta = BOT_META[key];
+  const tagline = source === "editor"
+    ? "Your live editor program — pick this to field your own code."
+    : source === "user"
+    ? "Saved to your library."
+    : (meta?.tagline ?? "No description.");
+  const role = source === "editor" ? "Your bot"
+             : source === "user"   ? "My Bot"
+             : (meta?.role ?? "Preset");
+  const badges = [];
+  if (source === "editor") badges.push(`<span class="bp-badge bp-badge-editor">YOU</span>`);
+  if (source === "user")   badges.push(`<span class="bp-badge bp-badge-user">MY BOT</span>`);
+  if (source === "preset") {
+    const d = bpDifficulty(key);
+    const label = d === 1 ? "EASY" : d === 2 ? "MEDIUM" : "ADVANCED";
+    badges.push(`<span class="bp-badge bp-badge-diff-${d}">${label}</span>`);
+  }
+  return `
+    <button class="bp-card" type="button" role="option" data-bot-key="${escapeHtml(key)}">
+      <div class="bp-card-head">
+        <div class="bp-card-icon ${safeCls}">${escapeHtml(botIconLetter(key))}</div>
+        <div class="bp-card-title">
+          <span class="bp-card-name">${escapeHtml(tbDisplayName(key, entry))}</span>
+          <span class="bp-card-sub">${safeCls} · ${escapeHtml(role)}</span>
+        </div>
+      </div>
+      <div class="bp-card-tag">${escapeHtml(tagline)}</div>
+      <div class="bp-card-stats">${renderStatBars(cls)}</div>
+      <div class="bp-card-badges">${badges.join("")}</div>
+    </button>`;
+}
+
+function bpRender() {
+  if (!botPickerGrid) return;
+  const q = _bpQuery.trim().toLowerCase();
+  const items = bpAllChoices().filter(({ key, source }) => {
+    const entry = getBotEntry(key);
+    if (!entry) return false;
+    if (_bpFilterClass && entry.class !== _bpFilterClass) return false;
+    if (q) {
+      const hay = `${entry.name} ${entry.class} ${BOT_META[key]?.role ?? ""} ${BOT_META[key]?.tagline ?? ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  botPickerGrid.innerHTML = items.map(bpRenderCard).join("");
+  if (botPickerEmpty) botPickerEmpty.hidden = items.length > 0;
+}
+
+function openBotPicker({ title = "Pick a Robot", currentKey = null, includeEditor = true, onPick } = {}) {
+  if (!botPickerModal) return;
+  _bpOnPick = onPick;
+  _bpCurrentKey = currentKey;
+  _bpIncludeEditor = includeEditor;
+  _bpQuery = "";
+  _bpFilterClass = "";
+  if (botPickerSearch) botPickerSearch.value = "";
+  for (const f of document.querySelectorAll(".bp-filter")) {
+    f.classList.toggle("active", f.dataset.bpClass === "");
+  }
+  if (botPickerTitle) botPickerTitle.textContent = title;
+  _bpLastFocused = document.activeElement;
+  botPickerModal.hidden = false;
+  bpRender();
+  setTimeout(() => botPickerSearch?.focus(), 30);
+}
+
+function closeBotPicker() {
+  if (botPickerModal) botPickerModal.hidden = true;
+  _bpOnPick = null;
+  if (_bpLastFocused && typeof _bpLastFocused.focus === "function") {
+    try { _bpLastFocused.focus(); } catch {}
+  }
+  _bpLastFocused = null;
+}
+
+botPickerGrid?.addEventListener("click", (e) => {
+  const card = e.target.closest(".bp-card");
+  if (!card) return;
+  const key = card.dataset.botKey;
+  const cb = _bpOnPick;
+  closeBotPicker();
+  if (typeof cb === "function") cb(key);
+});
+
+botPickerSearch?.addEventListener("input", () => {
+  _bpQuery = botPickerSearch.value || "";
+  bpRender();
+});
+
+for (const btn of document.querySelectorAll(".bp-filter")) {
+  btn.addEventListener("click", () => {
+    _bpFilterClass = btn.dataset.bpClass || "";
+    for (const f of document.querySelectorAll(".bp-filter")) {
+      f.classList.toggle("active", f === btn);
+    }
+    bpRender();
+  });
+}
+
+document.getElementById("btn-close-bot-picker")?.addEventListener("click", closeBotPicker);
+document.getElementById("btn-bot-picker-cancel")?.addEventListener("click", closeBotPicker);
+botPickerModal?.addEventListener("click", (e) => {
+  if (e.target === botPickerModal) closeBotPicker();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && botPickerModal && !botPickerModal.hidden) {
+    closeBotPicker();
+  }
+});
+
+// Quick Battle button in the top bar — directly opens the Team Builder.
+document.getElementById("btn-quick-battle")?.addEventListener("click", () => {
+  tbOpenModal();
+});
+
 // Wire Team Builder modal
 btnOpenTeamBuilder?.addEventListener("click", tbOpenModal);
 btnCloseTeamBuilder?.addEventListener("click", tbCloseModal);
 btnTbCancel?.addEventListener("click", tbCloseModal);
 btnTbRun?.addEventListener("click", tbRunBattle);
 
-// Add-bot buttons: append a fresh card with a varied default bot.
+// Add-bot buttons: open the visual picker so the user actually chooses.
 for (const btn of document.querySelectorAll(".tb-add-btn")) {
   btn.addEventListener("click", () => {
     const team = btn.dataset.team;
-    tbAddBot(team, tbAutofillKey(tbCountCards(tbContainerFor(team))));
+    const container = tbContainerFor(team);
+    const cap = team === "royale" ? MAX_ROYALE_SLOTS : MAX_TEAM_SLOTS;
+    if (tbCountCards(container) >= cap) {
+      logToConsole(`Roster is full (max ${cap}).`, "warn");
+      return;
+    }
+    openBotPicker({
+      title: team === "enemy" ? "Add to Red Team"
+           : team === "ally"  ? "Add to Blue Team"
+                              : "Add a combatant",
+      includeEditor: true,
+      onPick: (key) => tbAddBot(team, key),
+    });
   });
 }
 
