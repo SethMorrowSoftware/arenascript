@@ -1312,3 +1312,168 @@
 .community-card .bot-card-header .community-pill {
   margin-left: auto;
 }
+
+/* ============================================================================
+   SFX toggle button
+   ============================================================================ */
+
+.btn-sfx {
+  padding: 6px 9px;
+  min-width: 36px;
+  font-size: 14px;
+}
+
+.btn-sfx.sfx-muted .sfx-icon { opacity: 0.4; filter: grayscale(1); }
+.btn-sfx.sfx-muted { color: var(--text-muted); }
+
+/* ============================================================================
+   Daily Challenge card (Builder sidebar)
+   ============================================================================ */
+
+.daily-challenge {
+  margin: 10px 12px 14px;
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(170, 85, 255, 0.10) 0%, rgba(0, 212, 255, 0.08) 100%);
+  border: 1px solid rgba(170, 85, 255, 0.25);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dc-tag {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: #c084fc;
+  background: rgba(170, 85, 255, 0.15);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+
+.dc-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.dc-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.dc-meta {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.dc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.dc-best {
+  font-size: 11px;
+  color: var(--accent-green);
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.dc-best.dc-best-none { color: var(--text-muted); font-weight: 500; }
+
+.dc-btn {
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1px solid rgba(170, 85, 255, 0.4);
+  background: rgba(170, 85, 255, 0.15);
+  color: #d8b4fe;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dc-btn:hover {
+  background: rgba(170, 85, 255, 0.3);
+  border-color: #c084fc;
+  color: #fff;
+}
+
+/* ============================================================================
+   Kill feed (arena overlay)
+   ============================================================================ */
+
+.kill-feed {
+  position: absolute;
+  top: 60px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 14;
+  pointer-events: none;
+  max-width: 280px;
+}
+
+.kill-feed-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 12, 22, 0.85);
+  border: 1px solid rgba(255, 51, 85, 0.4);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  backdrop-filter: blur(6px);
+  animation: kf-in 0.25s ease-out;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kill-feed-entry.kf-leaving { animation: kf-out 0.4s ease-in forwards; }
+
+.kill-feed-entry .kf-victim { color: var(--text-muted); }
+
+.kill-feed-entry .kf-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.kill-feed-entry .kf-arrow { color: var(--accent-red); font-weight: 900; }
+.kill-feed-entry .kf-suicide { color: var(--accent-orange); font-weight: 900; }
+
+@keyframes kf-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes kf-out {
+  to { opacity: 0; transform: translateX(20px); }
+}

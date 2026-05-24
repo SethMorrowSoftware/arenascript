@@ -42,6 +42,9 @@
       <button id="btn-quick-battle" class="btn btn-quick-battle" title="Pick robots and fight — no code required">
         <span aria-hidden="true">&#9876;</span> Quick Battle
       </button>
+      <button id="btn-sfx-toggle" class="btn btn-ghost btn-sfx" title="Toggle sound effects" aria-label="Toggle sound effects">
+        <span class="sfx-icon" aria-hidden="true">&#128266;</span>
+      </button>
       <span id="auth-status" class="shortcut-hint">Guest</span>
       <button id="btn-auth-open" class="btn btn-compile">Sign In</button>
       <button id="btn-auth-logout" class="btn btn-save" hidden>Sign Out</button>
@@ -58,6 +61,23 @@
 
       <!-- Builder sidebar content: presets + user bots -->
       <div class="sidebar-panel" data-sidebar="builder">
+
+        <!-- Daily Challenge card -->
+        <div class="daily-challenge" id="daily-challenge" hidden>
+          <div class="dc-head">
+            <span class="dc-tag">Daily Challenge</span>
+            <span class="dc-date" id="dc-date"></span>
+          </div>
+          <div class="dc-body">
+            <div class="dc-title" id="dc-title">—</div>
+            <div class="dc-meta" id="dc-meta">—</div>
+          </div>
+          <div class="dc-footer">
+            <span class="dc-best" id="dc-best">No attempts yet</span>
+            <button id="btn-dc-run" class="dc-btn">Play</button>
+          </div>
+        </div>
+
         <div class="sidebar-header">Start Here · Tutorial</div>
 
         <button class="bot-preset" data-bot="rookie" title="Rookie — Simplest possible bot. Start here.">
@@ -416,6 +436,9 @@
                   <span class="sb-dot"></span>
                 </div>
               </div>
+
+              <!-- Kill feed overlay (live during a match) -->
+              <div id="kill-feed" class="kill-feed" aria-hidden="true"></div>
 
               <!-- Live combatant HUD: team rosters with HP bars (match-live only) -->
               <div id="match-hud" class="match-hud" aria-hidden="true">

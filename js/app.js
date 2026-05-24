@@ -18,6 +18,7 @@ import {
 } from "./engine/arena-presets.js";
 import * as BotLibrary from "./bot-library.js";
 import * as ApiClient from "./api-client.js";
+import * as SFX from "./ui/sfx.js";
 import {
   installShortcutHelp,
   installLangReference,
@@ -3883,6 +3884,203 @@ function drawFrame(frame, labels, prevFrame) {
   updateScoreboard(frame);
 }
 
+// ============================================================================
+// Battle effects — floating damage numbers + explosion bursts + kill feed
+// ============================================================================
+
+const _fxParticles = [];           // { kind, x, y, vx, vy, life, maxLife, text, color, size }
+const _killFeedEntries = [];       // { el, expiresAt }
+let _lastFxFrameIndex = -1;        // Last frame whose events we processed for FX
+let _fxMeta = {};                  // robotId -> { name, teamId } for kill-feed labels
+const KILL_FEED_TTL_MS = 4500;
+const killFeedEl = document.getElementById("kill-feed");
+
+function fxClearAll() {
+  _fxParticles.length = 0;
+  _lastFxFrameIndex = -1;
+  if (killFeedEl) killFeedEl.innerHTML = "";
+  _killFeedEntries.length = 0;
+}
+
+function fxSpawnDamageNumber(x, y, dmg, isPlayerSide) {
+  _fxParticles.push({
+    kind: "dmg", x, y,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: -0.6,
+    life: 0, maxLife: 60,
+    text: `-${Math.round(dmg)}`,
+    color: isPlayerSide ? "#ff4d6d" : "#fef08a",
+    size: dmg > 20 ? 14 : 11,
+  });
+}
+
+function fxSpawnExplosion(x, y) {
+  // Outer ring + burst
+  _fxParticles.push({ kind: "ring", x, y, life: 0, maxLife: 28, color: "#fbbf24" });
+  for (let i = 0; i < 10; i++) {
+    const ang = (i / 10) * Math.PI * 2 + Math.random() * 0.3;
+    const speed = 1.5 + Math.random() * 1.2;
+    _fxParticles.push({
+      kind: "spark", x, y,
+      vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+      life: 0, maxLife: 24 + Math.floor(Math.random() * 10),
+      color: i % 2 === 0 ? "#fbbf24" : "#ef4444",
+    });
+  }
+}
+
+function fxAdvanceAndRender() {
+  if (_fxParticles.length === 0) return;
+  const s = canvasScale();
+  const { ox, oy } = canvasOffset();
+  ctx.save();
+  ctx.translate(ox, oy);
+
+  for (let i = _fxParticles.length - 1; i >= 0; i--) {
+    const p = _fxParticles[i];
+    p.life++;
+    if (p.life >= p.maxLife) { _fxParticles.splice(i, 1); continue; }
+    const t = p.life / p.maxLife;
+    const alpha = 1 - t;
+
+    if (p.kind === "dmg") {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy *= 0.96;
+      ctx.font = `700 ${p.size}px var(--font-mono, monospace)`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = alpha;
+      // Soft outline so numbers read against any background.
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(0,0,0,0.7)";
+      ctx.strokeText(p.text, p.x * s, p.y * s);
+      ctx.fillText(p.text, p.x * s, p.y * s);
+    } else if (p.kind === "spark") {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      ctx.beginPath();
+      ctx.arc(p.x * s, p.y * s, Math.max(0.5, (1 - t) * 2.5), 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = alpha;
+      ctx.fill();
+    } else if (p.kind === "ring") {
+      const r = t * 3.5 * s;
+      ctx.beginPath();
+      ctx.arc(p.x * s, p.y * s, r, 0, Math.PI * 2);
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 2 * (1 - t);
+      ctx.globalAlpha = alpha;
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function killFeedAdd(html) {
+  if (!killFeedEl) return;
+  const el = document.createElement("div");
+  el.className = "kill-feed-entry";
+  el.innerHTML = html;
+  killFeedEl.appendChild(el);
+  const entry = { el, expiresAt: performance.now() + KILL_FEED_TTL_MS };
+  _killFeedEntries.push(entry);
+
+  // Trim to 4 entries on screen for legibility.
+  while (_killFeedEntries.length > 4) {
+    const old = _killFeedEntries.shift();
+    old.el.remove();
+  }
+  scheduleKillFeedSweep();
+}
+
+let _killFeedSweepHandle = null;
+function scheduleKillFeedSweep() {
+  if (_killFeedSweepHandle) return;
+  _killFeedSweepHandle = setInterval(() => {
+    const now = performance.now();
+    for (let i = _killFeedEntries.length - 1; i >= 0; i--) {
+      const entry = _killFeedEntries[i];
+      if (now < entry.expiresAt) continue;
+      entry.el.classList.add("kf-leaving");
+      _killFeedEntries.splice(i, 1);
+      setTimeout(() => entry.el.remove(), 450);
+    }
+    if (_killFeedEntries.length === 0) {
+      clearInterval(_killFeedSweepHandle);
+      _killFeedSweepHandle = null;
+    }
+  }, 250);
+}
+
+/**
+ * Map a robot id to a friendly display name + team color. Pulls from the
+ * replayLabels meta used by the existing match HUD.
+ */
+function fxLabelFor(robotId) {
+  const meta = _fxMeta[robotId];
+  if (meta) return meta;
+  const name = replayLabels?.[robotId];
+  return { name: name || robotId, teamId: 0 };
+}
+
+function fxTeamColor(teamId) {
+  return teamId === 0 ? "#00d4ff" : "#ff3355";
+}
+
+/**
+ * Process a newly-rendered frame: dispatch sounds, spawn damage particles,
+ * push kill-feed entries. Idempotent across re-renders of the same frame
+ * (we only fire once per frame index per replay).
+ */
+function processFrameEffects(frame, frameIndex) {
+  if (!frame || frameIndex <= _lastFxFrameIndex) return;
+  _lastFxFrameIndex = frameIndex;
+
+  const events = frame.events || [];
+  if (events.length === 0) return;
+
+  // Quick robotId → position lookup
+  const positions = new Map();
+  for (const r of frame.robots || []) positions.set(r.id, r.position);
+
+  let damageCount = 0;
+  let killCount = 0;
+  for (const e of events) {
+    if (!e) continue;
+    if (e.type === "damaged" && e.data) {
+      damageCount++;
+      const pos = positions.get(e.robotId);
+      if (pos && e.data.damage > 0) {
+        const label = fxLabelFor(e.robotId);
+        fxSpawnDamageNumber(pos.x, pos.y - 2, e.data.damage, label.teamId === 0);
+      }
+    } else if (e.type === "destroyed") {
+      killCount++;
+      const pos = positions.get(e.robotId);
+      if (pos) fxSpawnExplosion(pos.x, pos.y);
+
+      const victim = fxLabelFor(e.robotId);
+      const killerId = e.data?.killedBy ?? e.data?.sourceId;
+      const killer = killerId && killerId !== e.robotId ? fxLabelFor(killerId) : null;
+      const victimChip = `<span class="kf-icon" style="background:${fxTeamColor(victim.teamId)}22;color:${fxTeamColor(victim.teamId)};">${escapeHtml((victim.name || "?").slice(0,1).toUpperCase())}</span>`;
+      if (killer && killer.name && killer.name !== victim.name) {
+        const killerChip = `<span class="kf-icon" style="background:${fxTeamColor(killer.teamId)}22;color:${fxTeamColor(killer.teamId)};">${escapeHtml((killer.name || "?").slice(0,1).toUpperCase())}</span>`;
+        killFeedAdd(`${killerChip}<span>${escapeHtml(killer.name)}</span><span class="kf-arrow">&#9876;</span>${victimChip}<span class="kf-victim">${escapeHtml(victim.name)}</span>`);
+      } else {
+        killFeedAdd(`<span class="kf-suicide">&#10005;</span>${victimChip}<span class="kf-victim">${escapeHtml(victim.name)} eliminated</span>`);
+      }
+    }
+  }
+
+  if (damageCount > 0) SFX.playHit();
+  if (killCount > 0) SFX.playExplode();
+}
+
 function drawIdle() {
   // When idle, preview the currently-selected arena preset so players see
   // exactly what terrain they are about to fight on.
@@ -4255,8 +4453,13 @@ function updateScoreboard(frame) {
 }
 
 /** Reveal the match results scorecard (called when the replay finishes). */
+let _victoryStingPlayed = false;
 function revealMatchResults() {
   if (matchResultsEl) matchResultsEl.classList.add("visible");
+  if (!_victoryStingPlayed) {
+    _victoryStingPlayed = true;
+    SFX.playVictory();
+  }
 }
 
 /** Show the results scorecard only while the final replay frame is on screen. */
@@ -4292,14 +4495,19 @@ function startReplay(result, opponentName) {
   replayData = frames;
   lastReplayBookmarks = computeBookmarks(frames);
   const labelsById = {};
+  _fxMeta = {};
   for (const p of result.replay.metadata?.participants ?? []) {
-    if (p.teamId === 0 && p.playerId === "player") labelsById[p.robotId] = "You";
-    else labelsById[p.robotId] = p.playerId;
+    const name = (p.teamId === 0 && p.playerId === "player") ? "You" : p.playerId;
+    labelsById[p.robotId] = name;
+    _fxMeta[p.robotId] = { name, teamId: p.teamId ?? 0 };
   }
   replayLabels = labelsById;
   replayFrameIndex = 0;
   replayPlaying = true;
   replaySpeed = parseFloat(replaySpeedSelect.value) || 0.24;
+  fxClearAll();
+  _victoryStingPlayed = false;
+  SFX.playStart();
 
   // Enter match-live mode — the arena takes over the screen — and build the
   // broadcast overlay (scoreboard, combatant HUD, cinematic intro).
@@ -4357,6 +4565,8 @@ function replayTick(timestamp) {
     const frame = replayData[replayFrameIndex];
     if (!frame) return;
     drawFrame(frame, replayLabels);
+    processFrameEffects(frame, replayFrameIndex);
+    fxAdvanceAndRender();
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
 
@@ -4397,10 +4607,15 @@ function toggleReplayPlayPause() {
 function scrubReplay() {
   if (!replayData) return;
   const idx = parseInt(replayScrubber.value, 10);
+  // Scrubbing backwards/forwards shouldn't replay old SFX or kill-feed
+  // entries — wipe FX state and let the new frame re-paint silently.
+  if (idx < _lastFxFrameIndex) fxClearAll();
   replayFrameIndex = idx;
+  _lastFxFrameIndex = Math.max(_lastFxFrameIndex, idx);
   const frame = replayData[idx];
   if (frame) {
     drawFrame(frame, replayLabels);
+    fxAdvanceAndRender();
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
     syncResultsToFrame();
@@ -6679,6 +6894,164 @@ installCommandPalette(() => {
   });
   return cmds;
 });
+
+// ============================================================================
+// SFX toggle wiring
+// ============================================================================
+
+const btnSfxToggle = document.getElementById("btn-sfx-toggle");
+
+function updateSfxButton() {
+  if (!btnSfxToggle) return;
+  const on = SFX.isEnabled();
+  btnSfxToggle.classList.toggle("sfx-muted", !on);
+  const icon = btnSfxToggle.querySelector(".sfx-icon");
+  if (icon) icon.textContent = on ? "🔊" : "🔇";
+  btnSfxToggle.title = on ? "Mute sound effects" : "Unmute sound effects";
+}
+
+btnSfxToggle?.addEventListener("click", () => {
+  SFX.setEnabled(!SFX.isEnabled());
+  updateSfxButton();
+  if (SFX.isEnabled()) SFX.playClick();
+});
+
+updateSfxButton();
+
+// ============================================================================
+// Daily Challenge
+// ============================================================================
+//
+// Deterministic-per-day opponent + arena + seed. Encourages daily return
+// visits without any backend dependency — the challenge is purely a function
+// of today's date, the best-time leaderboard lives in localStorage.
+
+const DC_STORAGE_KEY = "arenascript.daily.v1";
+const dcEl = document.getElementById("daily-challenge");
+const dcDateEl = document.getElementById("dc-date");
+const dcTitleEl = document.getElementById("dc-title");
+const dcMetaEl = document.getElementById("dc-meta");
+const dcBestEl = document.getElementById("dc-best");
+const dcRunBtn = document.getElementById("btn-dc-run");
+
+function dcTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function dcDayIndex() {
+  // Days since a fixed epoch — used to deterministically pick today's matchup.
+  const d = new Date();
+  const utc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.floor(utc / 86400000);
+}
+
+function dcGetState() {
+  try {
+    const raw = localStorage.getItem(DC_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch { return {}; }
+}
+
+function dcRecordResult(dayKey, tickCount, won) {
+  const state = dcGetState();
+  const entry = state[dayKey] || { attempts: 0, bestTicks: null, won: false };
+  entry.attempts++;
+  if (won && (entry.bestTicks === null || tickCount < entry.bestTicks)) {
+    entry.bestTicks = tickCount;
+    entry.won = true;
+  }
+  state[dayKey] = entry;
+  try { localStorage.setItem(DC_STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+
+const DC_OPPONENT_POOL = [
+  "kiter", "fortress", "flanker", "sentinel", "hivemind",
+  "phantom", "warden", "overclock", "oracle", "zealot", "predator",
+];
+
+function dcTodayConfig() {
+  const idx = dcDayIndex();
+  const oppKey = DC_OPPONENT_POOL[idx % DC_OPPONENT_POOL.length];
+  const arenaList = ARENA_PRESET_ORDER.filter((a) => a !== "nexus");
+  const arenaId = arenaList[idx % arenaList.length];
+  // Seed is bounded by the engine PRNG range; a day-derived stable seed.
+  const seed = (idx * 2654435761) % 2_147_483_646;
+  return { oppKey, arenaId, seed, dayKey: dcTodayKey() };
+}
+
+function dcFormatTicks(ticks) {
+  if (ticks == null) return "—";
+  const seconds = ticks / 30; // engine runs at 30 ticks/sec
+  return `${seconds.toFixed(1)}s`;
+}
+
+function dcRender() {
+  if (!dcEl) return;
+  const cfg = dcTodayConfig();
+  const opp = getBotEntry(cfg.oppKey);
+  const arena = getArenaPreset(cfg.arenaId);
+  if (!opp || !arena) { dcEl.hidden = true; return; }
+
+  dcEl.hidden = false;
+  if (dcDateEl) {
+    const d = new Date();
+    dcDateEl.textContent = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  if (dcTitleEl) dcTitleEl.textContent = `Beat ${opp.name}`;
+  if (dcMetaEl) dcMetaEl.textContent = `${arena.name} · 1v1 · fixed seed`;
+
+  const state = dcGetState()[cfg.dayKey];
+  if (dcBestEl) {
+    if (!state || !state.won) {
+      dcBestEl.classList.add("dc-best-none");
+      dcBestEl.textContent = state ? `${state.attempts} attempt${state.attempts === 1 ? "" : "s"}` : "No attempts yet";
+    } else {
+      dcBestEl.classList.remove("dc-best-none");
+      dcBestEl.textContent = `Best: ${dcFormatTicks(state.bestTicks)}`;
+    }
+  }
+}
+
+async function dcRun() {
+  const cfg = dcTodayConfig();
+  // Make sure the editor bot is compiled; if it isn't, run a fresh compile.
+  if (!compiledPlayer && !doCompile()) {
+    toast("Compile your bot first.", "warn");
+    return;
+  }
+  // Set arena + seed in the match controls so a follow-up "Run" reproduces.
+  if (arenaSelect && [...arenaSelect.options].some(o => o.value === cfg.arenaId)) {
+    arenaSelect.value = cfg.arenaId;
+    currentArenaId = cfg.arenaId;
+    updateArenaInfo();
+  }
+  if (matchModeSelect) matchModeSelect.value = "duel_1v1";
+  if (seedInput) seedInput.value = String(cfg.seed);
+  if (opponentSelect) {
+    refreshOpponentSelect();
+    opponentSelect.value = cfg.oppKey;
+  }
+
+  setView("arena");
+  await nextFrame();
+  await doRunMatch();
+
+  // Record the outcome — assumes lastMatchResult is populated after doRunMatch.
+  if (lastMatchResult) {
+    const playerWon = lastMatchResult.winner === 0;
+    dcRecordResult(cfg.dayKey, lastMatchResult.tickCount, playerWon);
+    dcRender();
+    if (playerWon) {
+      toast(`Daily Challenge: WON in ${dcFormatTicks(lastMatchResult.tickCount)}`, "success");
+    }
+  }
+}
+
+dcRunBtn?.addEventListener("click", dcRun);
+dcRender();
 
 // ============================================================================
 // Init
