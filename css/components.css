@@ -1539,6 +1539,8 @@
   padding: 16px 20px;
 }
 
+.ach-grid[hidden] { display: none !important; }
+
 .ach-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -2048,4 +2050,165 @@
   background: rgba(0, 212, 255, 0.1);
   color: var(--accent-cyan);
   opacity: 0.75;
+}
+
+/* ============================================================================
+   Achievements modal — tabs + Rivals panel
+   ============================================================================ */
+
+.ach-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+
+.ach-tab {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.ach-tab:hover { color: var(--text-primary); }
+
+.ach-tab.active {
+  color: var(--accent-cyan);
+  border-bottom-color: var(--accent-cyan);
+  background: rgba(0, 212, 255, 0.05);
+}
+
+.ach-rivals[hidden] { display: none !important; }
+
+.ach-rivals {
+  padding: 12px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rival-row {
+  display: grid;
+  grid-template-columns: 28px 36px 1fr 120px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+}
+
+.rival-row.rival-positive { border-left-color: var(--accent-green); }
+.rival-row.rival-negative { border-left-color: var(--accent-red); }
+.rival-row.rival-even     { border-left-color: var(--accent-orange); }
+
+.rival-rank {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.rival-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.rival-icon.brawler { background: var(--accent-red-dim); color: var(--accent-red); }
+.rival-icon.ranger  { background: var(--accent-cyan-dim); color: var(--accent-cyan); }
+.rival-icon.tank    { background: var(--accent-orange-dim); color: var(--accent-orange); }
+.rival-icon.support { background: var(--accent-green-dim); color: var(--accent-green); }
+
+.rival-body { min-width: 0; }
+
+.rival-name {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rival-cls {
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.rival-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+}
+
+.rival-bar-w { background: var(--accent-green); }
+.rival-bar-d { background: var(--accent-orange); }
+.rival-bar-l { background: var(--accent-red); }
+
+.rival-record {
+  text-align: right;
+}
+
+.rival-record-line {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 0.4px;
+}
+
+.rival-record-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  letter-spacing: 0.4px;
+}
+
+.ach-rivals-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.ach-rivals-empty-icon {
+  font-size: 42px;
+  margin-bottom: 14px;
+  opacity: 0.5;
+}
+
+.ach-rivals-empty h3 {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.ach-rivals-empty p {
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 380px;
+  margin: 0 auto;
 }

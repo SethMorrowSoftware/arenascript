@@ -7238,6 +7238,8 @@ function renderAchievementsModal() {
   achStatPlayed.textContent = String(state.matchesPlayed || 0);
   achStatStreak.textContent = String(state.currentStreak || 0);
 
+  renderRivals();
+
   achGridEl.innerHTML = "";
   for (const ach of Achievements.getAchievements()) {
     const unlocked = !!state.unlocked[ach.id];
@@ -7258,6 +7260,64 @@ function renderAchievementsModal() {
       </div>`;
     achGridEl.appendChild(card);
   }
+}
+
+const achRivalsEl = document.getElementById("ach-rivals");
+
+function renderRivals() {
+  if (!achRivalsEl) return;
+  const opponents = MatchStats.listOpponents().slice(0, 8);
+  if (opponents.length === 0) {
+    achRivalsEl.innerHTML = `
+      <div class="ach-rivals-empty">
+        <div class="ach-rivals-empty-icon">⚔️</div>
+        <h3>No rivalries yet</h3>
+        <p>Run a 1v1 match and your record vs each opponent will appear here. Visit the <b>Bot Picker</b> to see your record in-line on every card.</p>
+      </div>`;
+    return;
+  }
+  achRivalsEl.innerHTML = opponents.map((o, i) => {
+    const entry = getBotEntry(o.botKey);
+    if (!entry) return "";
+    const total = o.wins + o.losses + o.draws;
+    const wPct = total > 0 ? (o.wins / total) * 100 : 0;
+    const lPct = total > 0 ? (o.losses / total) * 100 : 0;
+    const dPct = total > 0 ? (o.draws / total) * 100 : 0;
+    const tone = o.wins > o.losses ? "rival-positive"
+              : o.losses > o.wins ? "rival-negative" : "rival-even";
+    return `
+      <div class="rival-row ${tone}">
+        <span class="rival-rank">#${i + 1}</span>
+        <span class="rival-icon ${escapeHtml(entry.class)}">${escapeHtml(botIconLetter(o.botKey))}</span>
+        <div class="rival-body">
+          <div class="rival-name">${escapeHtml(entry.name)}<span class="rival-cls"> · ${escapeHtml(entry.class)}</span></div>
+          <div class="rival-bar">
+            <div class="rival-bar-w" style="width:${wPct.toFixed(1)}%"></div>
+            <div class="rival-bar-d" style="width:${dPct.toFixed(1)}%"></div>
+            <div class="rival-bar-l" style="width:${lPct.toFixed(1)}%"></div>
+          </div>
+        </div>
+        <div class="rival-record">
+          <div class="rival-record-line">${o.wins}W · ${o.losses}L${o.draws ? ` · ${o.draws}D` : ""}</div>
+          <div class="rival-record-sub">${total} match${total === 1 ? "" : "es"}</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+// Tab switching for the achievements modal.
+for (const tab of document.querySelectorAll(".ach-tab")) {
+  tab.addEventListener("click", () => {
+    const name = tab.dataset.achTab;
+    for (const t of document.querySelectorAll(".ach-tab")) {
+      const active = t === tab;
+      t.classList.toggle("active", active);
+      t.setAttribute("aria-selected", active ? "true" : "false");
+    }
+    for (const panel of document.querySelectorAll("[data-ach-tab-panel]")) {
+      panel.hidden = panel.dataset.achTabPanel !== name;
+    }
+  });
 }
 
 function openAchievementsModal() {

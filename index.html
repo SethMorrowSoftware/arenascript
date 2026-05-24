@@ -741,8 +741,13 @@
           <div class="ach-stat-label">Streak</div>
         </div>
       </div>
+      <div class="ach-tabs" role="tablist">
+        <button class="ach-tab active" data-ach-tab="achievements" type="button" role="tab" aria-selected="true">Achievements</button>
+        <button class="ach-tab" data-ach-tab="rivals" type="button" role="tab" aria-selected="false">Rivals</button>
+      </div>
       <div class="tb-modal-body ach-body">
-        <div id="ach-grid" class="ach-grid"></div>
+        <div id="ach-grid" class="ach-grid" data-ach-tab-panel="achievements"></div>
+        <div id="ach-rivals" class="ach-rivals" data-ach-tab-panel="rivals" hidden></div>
       </div>
     </div>
   </div>
