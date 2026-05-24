@@ -7851,20 +7851,48 @@ document.getElementById("btn-share-card")?.addEventListener("click", async () =>
     const durationLabel = `${(lastMatchResult.tickCount / 30).toFixed(1)}s`;
     const winnerSide = lastMatchResult.winner;
     let winnerLabel = null;
+    let shareText = `${arena?.name || "Arena"} · ${durationLabel}`;
     if (winnerSide === 0 || winnerSide === 1) {
       const participants = lastMatchResult.replay?.metadata?.participants ?? [];
-      // Use the player name if Team 0 won and the player was on it; otherwise
-      // fall back to a "Team X Wins" framing.
       const playerOnWinning = participants.some((p) => p.teamId === winnerSide && p.playerId === "player");
-      if (playerOnWinning) winnerLabel = "YOU WIN";
+      if (playerOnWinning) {
+        winnerLabel = "YOU WIN";
+        shareText = `I won on ${arena?.name || "the arena"} in ${durationLabel} — ArenaScript`;
+      } else {
+        shareText = `${winnerSide === 0 ? "Blue" : "Red"} Team wins on ${arena?.name || "the arena"} — ArenaScript`;
+      }
+    } else if (winnerSide === null) {
+      shareText = `Draw on ${arena?.name || "the arena"} — ArenaScript`;
     }
+
     const { blob } = await generateShareCard(lastMatchResult, {
       arenaName: arena?.name || "Arena",
       durationLabel,
       winnerLabel,
     });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    downloadBlob(blob, `arenascript-match-${stamp}.png`);
+    const filename = `arenascript-match-${stamp}.png`;
+
+    // Prefer the native share sheet (mobile) when available + the file is
+    // shareable; fall back to a download otherwise.
+    const file = new File([blob], filename, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: "ArenaScript match",
+          text: shareText,
+          files: [file],
+        });
+        toast("Shared.", "success");
+        SFX.playClick();
+        return;
+      } catch (e) {
+        // User canceled or share failed — fall through to download.
+        if (e && e.name === "AbortError") return;
+      }
+    }
+
+    downloadBlob(blob, filename);
     toast("Share card downloaded.", "success");
     SFX.playClick();
   } catch (e) {
