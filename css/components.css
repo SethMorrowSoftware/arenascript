@@ -1697,3 +1697,307 @@
 @keyframes ach-toast-out {
   to { opacity: 0; transform: translateX(40px); }
 }
+
+/* ============================================================================
+   Tournament view — bracket + roster + winner
+   ============================================================================ */
+
+.view-content-tournament {
+  overflow-y: auto;
+  padding: 28px 36px 40px;
+  background: var(--bg-primary);
+}
+
+.tourn-roster {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+.tourn-roster-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.tourn-roster-head h3 {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.tourn-roster-head h3 span {
+  margin-left: 6px;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+}
+
+.tourn-roster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.tourn-roster-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+}
+
+.tourn-roster-card .seed {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  min-width: 18px;
+}
+
+.tourn-roster-card .icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.tourn-roster-card .name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tourn-roster-card .you {
+  background: rgba(0, 212, 255, 0.18);
+  color: var(--accent-cyan);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+/* ---- Bracket ---- */
+
+.tourn-bracket {
+  display: flex;
+  gap: 32px;
+  overflow-x: auto;
+  padding: 16px 4px 32px;
+}
+
+.tourn-round {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 24px;
+  min-width: 240px;
+  position: relative;
+}
+
+.tourn-round-label {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.tourn-match {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+  transition: all var(--transition-fast);
+}
+
+.tourn-match.tm-running {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 18px rgba(0, 212, 255, 0.25);
+  animation: tm-pulse 1s ease-in-out infinite;
+}
+
+@keyframes tm-pulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(0, 212, 255, 0.2); }
+  50%      { box-shadow: 0 0 26px rgba(0, 212, 255, 0.4); }
+}
+
+.tourn-match.tm-complete {
+  border-color: rgba(170, 85, 255, 0.4);
+}
+
+.tm-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  position: relative;
+}
+
+.tm-slot + .tm-slot {
+  border-top: 1px solid var(--border);
+}
+
+.tm-slot.tm-winner {
+  background: linear-gradient(90deg, rgba(170, 85, 255, 0.12) 0%, rgba(0, 212, 255, 0.08) 100%);
+}
+
+.tm-slot.tm-winner .tm-name {
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.tm-slot.tm-loser .tm-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 51, 85, 0.5);
+  text-decoration-thickness: 1px;
+}
+
+.tm-seed {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  min-width: 18px;
+}
+
+.tm-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.tm-name {
+  flex: 1;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tm-name .you-tag {
+  margin-left: 4px;
+  background: rgba(0, 212, 255, 0.18);
+  color: var(--accent-cyan);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 800;
+}
+
+.tm-result {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.tm-meta {
+  padding: 5px 12px;
+  background: var(--bg-tertiary);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.tm-meta .tm-watch {
+  border: none;
+  background: transparent;
+  color: var(--accent-cyan);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tm-meta .tm-watch:hover { text-decoration: underline; }
+
+/* Connector lines between rounds */
+.tourn-round:not(:last-child) .tourn-match::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -32px;
+  width: 32px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* ---- Winner banner ---- */
+
+.tourn-winner {
+  margin-top: 24px;
+  padding: 28px;
+  background: linear-gradient(135deg, rgba(170, 85, 255, 0.15) 0%, rgba(0, 212, 255, 0.1) 100%);
+  border: 1px solid rgba(170, 85, 255, 0.5);
+  border-radius: var(--radius);
+  text-align: center;
+  animation: tw-in 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tw-trophy {
+  font-size: 64px;
+  filter: drop-shadow(0 0 20px rgba(170, 85, 255, 0.5));
+  margin-bottom: 8px;
+}
+
+.tw-tag {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #d8b4fe;
+}
+
+.tw-name {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 6px 0 8px;
+}
+
+.tw-stats {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 18px;
+}
+
+@keyframes tw-in {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

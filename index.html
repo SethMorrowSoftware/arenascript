@@ -27,6 +27,9 @@
         <button class="view-tab" data-view="community" role="tab" aria-selected="false">
           <span class="tab-icon">&#127758;</span> Community
         </button>
+        <button class="view-tab" data-view="tournament" role="tab" aria-selected="false">
+          <span class="tab-icon">&#127942;</span> Tournament
+        </button>
       </nav>
     </div>
     <div class="top-bar-actions">
@@ -305,6 +308,39 @@
         </div>
       </div>
 
+      <!-- Tournament sidebar content: setup -->
+      <div class="sidebar-panel" data-sidebar="tournament" hidden>
+        <div class="sidebar-header">Tournament Setup</div>
+        <div class="sidebar-section">
+          <label for="tourn-size">Bracket size</label>
+          <select id="tourn-size" class="opponent-select">
+            <option value="4">4 robots (3 matches)</option>
+            <option value="8" selected>8 robots (7 matches)</option>
+            <option value="16">16 robots (15 matches)</option>
+          </select>
+        </div>
+        <div class="sidebar-section">
+          <label for="tourn-arena">Arena</label>
+          <select id="tourn-arena" class="opponent-select"></select>
+        </div>
+        <div class="sidebar-section">
+          <label for="tourn-seed">Seed (blank = random)</label>
+          <input id="tourn-seed" type="number" class="opponent-select" placeholder="Random" min="0" max="2147483646">
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-tourn-pick" class="btn btn-team-builder-open">Pick Participants</button>
+          <button id="btn-tourn-autofill" class="btn btn-run btn-block" style="margin-top:6px;">Auto-fill with presets</button>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-tourn-run" class="btn btn-run btn-block" disabled>Run Tournament</button>
+        </div>
+        <div class="sidebar-help" style="padding: 0 14px;">
+          Single-elimination bracket. Your editor bot is automatically the top seed.
+        </div>
+      </div>
+
       <!-- Community sidebar content: filters -->
       <div class="sidebar-panel" data-sidebar="community" hidden>
         <div class="sidebar-header">Community Bots</div>
@@ -551,6 +587,43 @@
           <div class="library-empty-icon">&#129302;</div>
           <h3>No bots in your library yet</h3>
           <p>Write a bot in the <b>Builder</b> and click <b>Save to Library</b>, or drop a <code>.arena</code> file above.</p>
+        </div>
+      </div>
+
+      <!-- ============ TOURNAMENT VIEW ============ -->
+      <div class="view-content view-content-tournament" data-view-content="tournament" hidden>
+        <div class="library-header">
+          <div class="library-title">
+            <h2>Tournament</h2>
+            <span class="library-subtitle">Single-elimination bracket. Pick your participants in the sidebar, then hit <b>Run Tournament</b>.</span>
+          </div>
+          <div class="library-actions">
+            <span id="tourn-status" class="community-count">Idle</span>
+          </div>
+        </div>
+
+        <div id="tourn-empty" class="library-empty">
+          <div class="library-empty-icon">&#127942;</div>
+          <h3>No bracket yet</h3>
+          <p>Pick your bracket size in the sidebar, click <b>Pick Participants</b> to choose robots, then <b>Run Tournament</b> to watch the bracket fill in live.</p>
+        </div>
+
+        <div id="tourn-roster" class="tourn-roster" hidden>
+          <div class="tourn-roster-head">
+            <h3>Participants <span id="tourn-roster-count">0</span></h3>
+            <button id="btn-tourn-clear" class="bc-btn">Clear</button>
+          </div>
+          <div id="tourn-roster-grid" class="tourn-roster-grid"></div>
+        </div>
+
+        <div id="tourn-bracket" class="tourn-bracket" hidden></div>
+
+        <div id="tourn-winner" class="tourn-winner" hidden>
+          <div class="tw-trophy">&#127942;</div>
+          <div class="tw-tag">Champion</div>
+          <div class="tw-name" id="tw-name">—</div>
+          <div class="tw-stats" id="tw-stats">—</div>
+          <button id="btn-tourn-new" class="btn btn-run">Run Another Tournament</button>
         </div>
       </div>
 

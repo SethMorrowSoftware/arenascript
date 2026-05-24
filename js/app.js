@@ -5904,7 +5904,7 @@ function toast(message, type = "info", timeout = 3500) {
 // ============================================================================
 
 function setView(name) {
-  if (name !== "builder" && name !== "arena" && name !== "library" && name !== "community") return;
+  if (name !== "builder" && name !== "arena" && name !== "library" && name !== "community" && name !== "tournament") return;
 
   const leavingArena = currentView === "arena" && name !== "arena";
   currentView = name;
@@ -5932,19 +5932,23 @@ function setView(name) {
     panel.hidden = panel.dataset.sidebar !== name;
   });
 
-  // Main view content — library + community are separate areas; builder+arena share workspace
+  // Main view content — library + community + tournament are separate areas
   const workspace = document.querySelector('[data-view-content="workspace"]');
   const libraryView = document.querySelector('[data-view-content="library"]');
   const communityView = document.querySelector('[data-view-content="community"]');
-  const isFullPageView = name === "library" || name === "community";
+  const tournamentView = document.querySelector('[data-view-content="tournament"]');
+  const isFullPageView = name === "library" || name === "community" || name === "tournament";
   if (workspace) workspace.hidden = isFullPageView;
   if (libraryView) libraryView.hidden = name !== "library";
   if (communityView) communityView.hidden = name !== "community";
+  if (tournamentView) tournamentView.hidden = name !== "tournament";
 
   if (name === "library") {
     renderLibrary();
   } else if (name === "community") {
     renderCommunity();
+  } else if (name === "tournament") {
+    initTournamentView();
   } else if (name === "arena") {
     // Resize canvas to fill the arena pane since editor collapses
     requestAnimationFrame(resizeArenaCanvasForCurrentView);
@@ -7311,6 +7315,417 @@ function recordMatchAchievements(result) {
     robotClass,
   });
 }
+
+// ============================================================================
+// Tournament — single-elimination bracket runner
+// ============================================================================
+
+const tournEmptyEl = document.getElementById("tourn-empty");
+const tournRosterEl = document.getElementById("tourn-roster");
+const tournRosterGridEl = document.getElementById("tourn-roster-grid");
+const tournRosterCountEl = document.getElementById("tourn-roster-count");
+const tournBracketEl = document.getElementById("tourn-bracket");
+const tournWinnerEl = document.getElementById("tourn-winner");
+const tournStatusEl = document.getElementById("tourn-status");
+const tournSizeEl = document.getElementById("tourn-size");
+const tournArenaEl = document.getElementById("tourn-arena");
+const tournSeedEl = document.getElementById("tourn-seed");
+const btnTournRun = document.getElementById("btn-tourn-run");
+const btnTournClear = document.getElementById("btn-tourn-clear");
+const btnTournPick = document.getElementById("btn-tourn-pick");
+const btnTournAutofill = document.getElementById("btn-tourn-autofill");
+const btnTournNew = document.getElementById("btn-tourn-new");
+
+let _tournRoster = [];           // [{ key, name, class, isYou }]
+let _tournBracket = null;        // { rounds: [{ matches: [{ a, b, winner, result, completed }] }] }
+let _tournRunning = false;
+let _tournViewInited = false;
+
+function initTournamentView() {
+  if (!_tournViewInited) {
+    // Populate the arena <select> the first time the view opens.
+    if (tournArenaEl) {
+      tournArenaEl.innerHTML = ARENA_PRESET_ORDER
+        .map((id) => `<option value="${id}">${escapeHtml(getArenaPreset(id).name)}</option>`)
+        .join("");
+    }
+    _tournViewInited = true;
+  }
+  renderTournamentView();
+}
+
+function tournRosterCapacity() {
+  return parseInt(tournSizeEl?.value || "8", 10);
+}
+
+/**
+ * Canonical single-elimination seed order for n participants. Pairing
+ * consecutive entries gives the standard bracket (1 only meets 2 in the
+ * final, etc.). e.g. n=8 -> [1, 8, 4, 5, 2, 7, 3, 6].
+ */
+function bracketSeedOrder(n) {
+  if (n === 1) return [1];
+  const half = bracketSeedOrder(n / 2);
+  const out = [];
+  for (const s of half) out.push(s, n + 1 - s);
+  return out;
+}
+
+function tournUpdateRunBtn() {
+  const cap = tournRosterCapacity();
+  const enough = _tournRoster.length === cap;
+  if (btnTournRun) {
+    btnTournRun.disabled = !enough || _tournRunning;
+    btnTournRun.textContent = enough ? "Run Tournament" : `Need ${cap - _tournRoster.length} more`;
+  }
+}
+
+function renderTournamentView() {
+  if (!tournRosterGridEl) return;
+  const empty = _tournRoster.length === 0;
+  if (tournEmptyEl) tournEmptyEl.hidden = !empty || !!_tournBracket;
+  if (tournRosterEl) tournRosterEl.hidden = empty;
+  if (tournRosterCountEl) tournRosterCountEl.textContent = `${_tournRoster.length}/${tournRosterCapacity()}`;
+
+  tournRosterGridEl.innerHTML = "";
+  _tournRoster.forEach((p, i) => {
+    const card = document.createElement("div");
+    card.className = "tourn-roster-card";
+    card.innerHTML = `
+      <span class="seed">#${i + 1}</span>
+      <span class="icon ${escapeHtml(p.class)}">${escapeHtml(botIconLetter(p.key))}</span>
+      <span class="name">${escapeHtml(p.name)}</span>
+      ${p.isYou ? `<span class="you">YOU</span>` : ""}`;
+    tournRosterGridEl.appendChild(card);
+  });
+  tournUpdateRunBtn();
+  renderBracket();
+}
+
+function tournAddParticipant(key) {
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length >= cap) return;
+  const entry = getBotEntry(key);
+  if (!entry) return;
+  _tournRoster.push({
+    key,
+    name: entry.isEditor ? "Your Bot" : entry.name,
+    class: entry.class,
+    isYou: !!entry.isEditor,
+  });
+  renderTournamentView();
+}
+
+function tournClear() {
+  _tournRoster = [];
+  _tournBracket = null;
+  if (tournWinnerEl) tournWinnerEl.hidden = true;
+  if (tournStatusEl) tournStatusEl.textContent = "Idle";
+  renderTournamentView();
+}
+
+function tournAutofill() {
+  const cap = tournRosterCapacity();
+  _tournRoster = [];
+  // Always seed the player's editor bot at #1.
+  _tournRoster.push({
+    key: "__editor__",
+    name: "Your Bot",
+    class: compiledPlayer?.program?.robotClass || "brawler",
+    isYou: true,
+  });
+  // Then varied presets from the pool.
+  let i = 0;
+  while (_tournRoster.length < cap && i < AUTOFILL_POOL.length * 2) {
+    const key = AUTOFILL_POOL[i % AUTOFILL_POOL.length];
+    if (!_tournRoster.some((p) => p.key === key)) {
+      const entry = getBotEntry(key);
+      if (entry) {
+        _tournRoster.push({ key, name: entry.name, class: entry.class, isYou: false });
+      }
+    }
+    i++;
+  }
+  renderTournamentView();
+}
+
+function tournPickParticipant() {
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length >= cap) {
+    toast("Roster is full. Clear or remove a bot first.", "warn");
+    return;
+  }
+  openBotPicker({
+    title: `Pick participant #${_tournRoster.length + 1}`,
+    includeEditor: !_tournRoster.some((p) => p.isYou),
+    onPick: (key) => {
+      tournAddParticipant(key);
+      // Keep picking until the bracket is full.
+      if (_tournRoster.length < cap) setTimeout(tournPickParticipant, 80);
+    },
+  });
+}
+
+function renderBracket() {
+  if (!tournBracketEl) return;
+  if (!_tournBracket) {
+    tournBracketEl.hidden = true;
+    tournBracketEl.innerHTML = "";
+    return;
+  }
+  tournBracketEl.hidden = false;
+
+  const rounds = _tournBracket.rounds;
+  // Use the planned total based on bracket size so labels stay correct even
+  // before later rounds have been generated.
+  const totalRounds = Math.log2(rounds[0].matches.length * 2);
+  const labelFor = (rIdx) => {
+    const remaining = Math.pow(2, totalRounds - rIdx);
+    if (remaining === 2) return "Final";
+    if (remaining === 4) return "Semifinal";
+    if (remaining === 8) return "Quarterfinal";
+    return `Round of ${remaining}`;
+  };
+
+  tournBracketEl.innerHTML = "";
+  rounds.forEach((round, rIdx) => {
+    const col = document.createElement("div");
+    col.className = "tourn-round";
+    col.innerHTML = `<div class="tourn-round-label">${labelFor(rIdx)}</div>`;
+    round.matches.forEach((m, mIdx) => {
+      const matchEl = document.createElement("div");
+      matchEl.className = `tourn-match ${m.running ? "tm-running" : ""} ${m.completed ? "tm-complete" : ""}`;
+      matchEl.dataset.r = String(rIdx);
+      matchEl.dataset.m = String(mIdx);
+      const slot = (p, isWinner, isLoser) => {
+        if (!p) return `<div class="tm-slot tm-tbd"><span class="tm-seed">—</span><span class="tm-name" style="color:var(--text-muted);">TBD</span></div>`;
+        const cls = isWinner ? "tm-winner" : isLoser ? "tm-loser" : "";
+        return `
+          <div class="tm-slot ${cls}">
+            <span class="tm-seed">#${p.seed}</span>
+            <span class="tm-icon ${escapeHtml(p.class)}">${escapeHtml(botIconLetter(p.key))}</span>
+            <span class="tm-name">${escapeHtml(p.name)}${p.isYou ? `<span class="you-tag">YOU</span>` : ""}</span>
+          </div>`;
+      };
+      const winnerSeat = m.winnerSeat; // "a" | "b" | null
+      matchEl.innerHTML = `
+        ${slot(m.a, winnerSeat === "a", winnerSeat === "b" && m.completed)}
+        ${slot(m.b, winnerSeat === "b", winnerSeat === "a" && m.completed)}
+        <div class="tm-meta">
+          <span>${m.running ? "Running…" : m.completed ? `${m.tickCount} ticks` : "Awaiting"}</span>
+          ${m.completed && m.result ? `<button class="tm-watch" data-r="${rIdx}" data-m="${mIdx}">Watch replay</button>` : ""}
+        </div>`;
+      col.appendChild(matchEl);
+    });
+    tournBracketEl.appendChild(col);
+  });
+}
+
+tournBracketEl?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".tm-watch");
+  if (!btn) return;
+  const r = parseInt(btn.dataset.r, 10);
+  const m = parseInt(btn.dataset.m, 10);
+  const match = _tournBracket?.rounds?.[r]?.matches?.[m];
+  if (!match?.result) return;
+  // Reuse the existing arena flow: load the replay and switch to the arena view.
+  lastMatchResult = match.result;
+  setView("arena");
+  startReplay(match.result, null);
+});
+
+/** Compile a roster entry into a {program, constants, playerId} participant. */
+function tournBuildParticipant(p, teamId) {
+  const entry = getBotEntry(p.key);
+  if (!entry) throw new Error(`Unknown bot ${p.key}`);
+  const r = compile(entry.source);
+  if (!r.success) throw new Error(`${entry.name} failed to compile`);
+  return {
+    program: r.program,
+    constants: r.constants,
+    playerId: p.isYou ? "player" : p.name,
+    teamId,
+  };
+}
+
+async function runTournament() {
+  if (_tournRunning) return;
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length !== cap) { toast(`Need ${cap} participants.`, "warn"); return; }
+
+  _tournRunning = true;
+  if (btnTournRun) btnTournRun.disabled = true;
+  if (tournWinnerEl) tournWinnerEl.hidden = true;
+  if (tournStatusEl) tournStatusEl.textContent = "Seeding bracket…";
+
+  // Validate & compile every entry up front so we fail fast.
+  const compiled = [];
+  for (let i = 0; i < _tournRoster.length; i++) {
+    const p = _tournRoster[i];
+    const entry = getBotEntry(p.key);
+    if (!entry) {
+      toast(`Unknown bot at seed #${i + 1}`, "error");
+      _tournRunning = false;
+      tournUpdateRunBtn();
+      return;
+    }
+    const r = compile(entry.source);
+    if (!r.success) {
+      toast(`${entry.name} failed to compile: ${r.errors?.[0] ?? "unknown"}`, "error");
+      _tournRunning = false;
+      tournUpdateRunBtn();
+      return;
+    }
+    compiled.push({ ...p, seed: i + 1, program: r.program, constants: r.constants });
+  }
+
+  // Build the bracket structure using canonical single-elim seeding so the
+  // top seeds can only meet in the final if both win out. For an 8-bracket
+  // the round-1 order is [1, 8, 4, 5, 2, 7, 3, 6].
+  const order = bracketSeedOrder(compiled.length);
+  const roundMatches = [];
+  for (let i = 0; i < order.length; i += 2) {
+    roundMatches.push({
+      a: compiled[order[i] - 1],
+      b: compiled[order[i + 1] - 1],
+      winner: null,
+      winnerSeat: null,
+      completed: false,
+      running: false,
+    });
+  }
+  _tournBracket = { rounds: [{ matches: roundMatches }] };
+  renderTournamentView();
+  if (tournEmptyEl) tournEmptyEl.hidden = true;
+
+  const arenaId = tournArenaEl?.value || DEFAULT_ARENA_ID;
+  const seedBase = parseInt(tournSeedEl?.value, 10);
+  const useSeed = !Number.isNaN(seedBase) && seedBase >= 0 ? seedBase : Math.floor(Math.random() * 2147483646);
+
+  let roundIdx = 0;
+  let totalRounds = Math.log2(compiled.length);
+
+  while (roundIdx < totalRounds) {
+    const round = _tournBracket.rounds[roundIdx];
+    if (tournStatusEl) tournStatusEl.textContent = `Round ${roundIdx + 1} of ${totalRounds}`;
+
+    // Run each match in the round sequentially with UI yields so the bracket
+    // animates rather than freezing the tab for the whole tournament.
+    for (let mIdx = 0; mIdx < round.matches.length; mIdx++) {
+      const match = round.matches[mIdx];
+      match.running = true;
+      renderTournamentView();
+      await nextFrame();
+      // Tiny delay so the "running" pulse is visible even on fast matches.
+      await new Promise((r) => setTimeout(r, 280));
+
+      const setup = {
+        config: {
+          mode: "duel_1v1",
+          arenaWidth: ARENA_WIDTH,
+          arenaHeight: ARENA_HEIGHT,
+          maxTicks: 3000,
+          tickRate: 30,
+          // Mix in round/match index so every match gets a unique seed.
+          seed: (useSeed + roundIdx * 977 + mIdx * 31) % 2147483646,
+          arenaId,
+        },
+        participants: [
+          { program: match.a.program, constants: match.a.constants, playerId: match.a.name + " (a)", teamId: 0 },
+          { program: match.b.program, constants: match.b.constants, playerId: match.b.name + " (b)", teamId: 1 },
+        ],
+      };
+
+      let result;
+      try {
+        result = runMatch(setup);
+      } catch (e) {
+        toast(`Match crashed: ${e.message}`, "error");
+        match.running = false;
+        renderTournamentView();
+        continue;
+      }
+
+      match.running = false;
+      match.completed = true;
+      match.tickCount = result.tickCount;
+      match.result = result;
+      // Single elim: ties go to the higher seed (lower seed number).
+      let winnerSeat;
+      if (result.winner === 0) winnerSeat = "a";
+      else if (result.winner === 1) winnerSeat = "b";
+      else winnerSeat = match.a.seed < match.b.seed ? "a" : "b";
+      match.winnerSeat = winnerSeat;
+      match.winner = winnerSeat === "a" ? match.a : match.b;
+      renderTournamentView();
+      SFX.playHit();
+    }
+
+    // Build next round from this round's winners.
+    if (round.matches.length > 1 || roundIdx + 1 < totalRounds) {
+      const winners = round.matches.map((m) => m.winner);
+      const nextMatches = [];
+      for (let i = 0; i < winners.length; i += 2) {
+        nextMatches.push({
+          a: winners[i] || null,
+          b: winners[i + 1] || null,
+          winner: null,
+          winnerSeat: null,
+          completed: false,
+          running: false,
+        });
+      }
+      _tournBracket.rounds.push({ matches: nextMatches });
+      renderTournamentView();
+      await nextFrame();
+    }
+
+    roundIdx++;
+  }
+
+  // Crown the champion.
+  const champion = _tournBracket.rounds[_tournBracket.rounds.length - 1].matches[0].winner;
+  if (tournStatusEl) tournStatusEl.textContent = `Champion: ${champion.name}`;
+  if (tournWinnerEl) {
+    tournWinnerEl.hidden = false;
+    document.getElementById("tw-name").textContent = champion.name + (champion.isYou ? "  (you!)" : "");
+    const totalMatches = _tournBracket.rounds.reduce((s, r) => s + r.matches.length, 0);
+    document.getElementById("tw-stats").textContent =
+      `${compiled.length}-bot single elimination · ${totalRounds} rounds · ${totalMatches} matches`;
+  }
+  SFX.playVictory();
+
+  // Achievement: winning a tournament as the player counts as a squad win
+  // (it's a multi-bot competition you led).
+  if (champion.isYou) {
+    Achievements.fact("match_ended", {
+      won: true,
+      perTeamMax: compiled.length,   // counts as the "Squad Leader" trigger
+      durationTicks: 0,               // tournament isn't a single match — skip speedrun
+      damageTaken: 1,                 // skip Untouchable for tournament
+      robotClass: compiledPlayer?.program?.robotClass || null,
+    });
+  }
+
+  _tournRunning = false;
+  tournUpdateRunBtn();
+}
+
+btnTournRun?.addEventListener("click", runTournament);
+btnTournClear?.addEventListener("click", tournClear);
+btnTournPick?.addEventListener("click", tournPickParticipant);
+btnTournAutofill?.addEventListener("click", tournAutofill);
+btnTournNew?.addEventListener("click", () => {
+  _tournBracket = null;
+  if (tournWinnerEl) tournWinnerEl.hidden = true;
+  renderTournamentView();
+});
+tournSizeEl?.addEventListener("change", () => {
+  // Trim or signal underfill when bracket size shrinks/grows.
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length > cap) _tournRoster = _tournRoster.slice(0, cap);
+  renderTournamentView();
+});
 
 // ============================================================================
 // Init
