@@ -45,6 +45,10 @@
       <button id="btn-sfx-toggle" class="btn btn-ghost btn-sfx" title="Toggle sound effects" aria-label="Toggle sound effects">
         <span class="sfx-icon" aria-hidden="true">&#128266;</span>
       </button>
+      <button id="btn-achievements" class="btn btn-ghost btn-achievements" title="View achievements" aria-label="Achievements">
+        <span aria-hidden="true">&#127942;</span>
+        <span id="ach-pill" class="ach-pill">0/0</span>
+      </button>
       <span id="auth-status" class="shortcut-hint">Guest</span>
       <button id="btn-auth-open" class="btn btn-compile">Sign In</button>
       <button id="btn-auth-logout" class="btn btn-save" hidden>Sign Out</button>
@@ -631,6 +635,47 @@
           <button id="btn-tb-run" class="tb-btn-primary" type="button">Run Battle</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Achievements Modal -->
+  <div id="achievements-modal" class="tb-modal-overlay" hidden role="dialog" aria-label="Achievements">
+    <div class="tb-modal ach-modal">
+      <div class="tb-modal-header">
+        <h2>Achievements</h2>
+        <button id="btn-close-achievements" class="tb-modal-close" title="Close">&times;</button>
+      </div>
+      <div class="ach-summary">
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-unlocked">0</div>
+          <div class="ach-stat-label">Unlocked</div>
+        </div>
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-wins">0</div>
+          <div class="ach-stat-label">Wins</div>
+        </div>
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-played">0</div>
+          <div class="ach-stat-label">Matches</div>
+        </div>
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-streak">0</div>
+          <div class="ach-stat-label">Streak</div>
+        </div>
+      </div>
+      <div class="tb-modal-body ach-body">
+        <div id="ach-grid" class="ach-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Achievement Unlock Toast -->
+  <div id="ach-unlock-toast" class="ach-unlock-toast" hidden aria-live="polite">
+    <div class="ach-unlock-icon" id="ach-unlock-icon">🏆</div>
+    <div class="ach-unlock-body">
+      <div class="ach-unlock-tag">Achievement unlocked</div>
+      <div class="ach-unlock-title" id="ach-unlock-title">—</div>
+      <div class="ach-unlock-desc" id="ach-unlock-desc">—</div>
     </div>
   </div>
 

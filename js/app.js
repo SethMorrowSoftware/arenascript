@@ -19,6 +19,7 @@ import {
 import * as BotLibrary from "./bot-library.js";
 import * as ApiClient from "./api-client.js";
 import * as SFX from "./ui/sfx.js";
+import * as Achievements from "./ui/achievements.js";
 import {
   installShortcutHelp,
   installLangReference,
@@ -2634,6 +2635,7 @@ async function doRunMatch() {
 
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
+  recordMatchAchievements(result);
 
   // Capture the share bundle so players can reproduce the exact fight via a
   // `#match=asv1:...` link. The editor source rides on team 0; every
@@ -2907,6 +2909,7 @@ async function doRunTeamSimulation() {
   hideMatchLoading();
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
+  recordMatchAchievements(result);
   const opponentName = teamPreset.name;
   logToConsole(`\n--- Team Simulation: ${teamPreset.name} ---`, "event");
   logToConsole(`Winner: ${result.winner === null ? "DRAW" : `Team ${result.winner}`} | ${result.reason}`, "success");
@@ -5433,6 +5436,7 @@ async function tbRunBattle() {
 
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
+  recordMatchAchievements(result);
   logToConsole(`Winner: ${result.winner === null ? "DRAW" : `Team ${result.winner}`}  |  ${result.reason}  |  ${result.tickCount} ticks`, "success");
   flushBotLogs(result.botLogs);
   showMatchResults(result, null);
@@ -6251,6 +6255,7 @@ btnSaveLibrary?.addEventListener("click", async () => {
     updateEditorFileName();
     toast(`Saved "${r.bot.name}" to library.`, "success");
     logToConsole(`Library: saved "${r.bot.name}" (${r.bot.class}).`, "success");
+    Achievements.fact("bot_saved", { count: BotLibrary.getAll().length });
     if (currentUser) {
       try {
         const created = await ApiClient.createRemoteBot({
@@ -6382,6 +6387,7 @@ async function toggleBotShared(localBot) {
         setVisibilityCacheEntry(remoteId, "public");
         toast(`"${localBot.name}" shared to community.`, "success");
         renderLibrary();
+        Achievements.fact("bot_shared");
       } else {
         toast("Couldn't share bot (no id returned).", "error");
       }
@@ -6401,6 +6407,7 @@ async function toggleBotShared(localBot) {
       ? `"${localBot.name}" is now public.`
       : `"${localBot.name}" is now private.`, "success");
     renderLibrary();
+    if (next === "public") Achievements.fact("bot_shared");
   } catch (e) {
     toast(`Couldn't change visibility: ${e.message ?? String(e)}`, "error");
   }
@@ -6521,6 +6528,7 @@ async function renderCommunity() {
       const r = BotLibrary.addBot(src, { overrideName });
       if (r.ok) {
         toast(`Installed "${bot.name}" to your library.`, "success");
+        Achievements.fact("bot_installed");
       } else {
         toast(`Couldn't install: ${(r.errors || []).join(", ") || "unknown error"}`, "error");
       }
@@ -7139,12 +7147,170 @@ async function dcRun() {
     dcRender();
     if (playerWon) {
       toast(`Daily Challenge: WON in ${dcFormatTicks(lastMatchResult.tickCount)}`, "success");
+      Achievements.fact("daily_won", { durationTicks: lastMatchResult.tickCount });
     }
   }
 }
 
 dcRunBtn?.addEventListener("click", dcRun);
 dcRender();
+
+// ============================================================================
+// Achievements wiring
+// ============================================================================
+
+const achievementsModal = document.getElementById("achievements-modal");
+const btnAchievements = document.getElementById("btn-achievements");
+const btnCloseAchievements = document.getElementById("btn-close-achievements");
+const achPillEl = document.getElementById("ach-pill");
+const achGridEl = document.getElementById("ach-grid");
+const achStatUnlocked = document.getElementById("ach-stat-unlocked");
+const achStatWins = document.getElementById("ach-stat-wins");
+const achStatPlayed = document.getElementById("ach-stat-played");
+const achStatStreak = document.getElementById("ach-stat-streak");
+const achUnlockToast = document.getElementById("ach-unlock-toast");
+const achUnlockIcon = document.getElementById("ach-unlock-icon");
+const achUnlockTitle = document.getElementById("ach-unlock-title");
+const achUnlockDesc = document.getElementById("ach-unlock-desc");
+
+function updateAchievementsPill() {
+  if (!achPillEl) return;
+  const s = Achievements.summary();
+  achPillEl.textContent = `${s.unlocked}/${s.total}`;
+  achPillEl.classList.toggle("ach-pill-full", s.unlocked === s.total && s.total > 0);
+}
+
+function renderAchievementsModal() {
+  if (!achGridEl) return;
+  const state = Achievements.getState();
+  achStatUnlocked.textContent = String(Object.keys(state.unlocked).length);
+  achStatWins.textContent = String(state.matchesWon || 0);
+  achStatPlayed.textContent = String(state.matchesPlayed || 0);
+  achStatStreak.textContent = String(state.currentStreak || 0);
+
+  achGridEl.innerHTML = "";
+  for (const ach of Achievements.getAchievements()) {
+    const unlocked = !!state.unlocked[ach.id];
+    const prog = Achievements.progressFor(ach.id);
+    const showBar = ach.target && ach.target > 1;
+    const card = document.createElement("div");
+    card.className = `ach-card ${unlocked ? "unlocked" : "locked"}`;
+    card.innerHTML = `
+      <div class="ach-card-icon">${ach.icon}</div>
+      <div class="ach-card-body">
+        <div class="ach-card-title">${escapeHtml(ach.title)}</div>
+        <div class="ach-card-desc">${escapeHtml(ach.desc)}</div>
+        ${showBar ? `
+          <div class="ach-card-progress">
+            <div class="ach-progress-bar"><div class="ach-progress-fill" style="width:${prog.percent}%"></div></div>
+            <div class="ach-progress-text">${prog.current}/${prog.target}</div>
+          </div>` : ""}
+      </div>`;
+    achGridEl.appendChild(card);
+  }
+}
+
+function openAchievementsModal() {
+  if (!achievementsModal) return;
+  renderAchievementsModal();
+  achievementsModal.hidden = false;
+}
+
+function closeAchievementsModal() {
+  if (achievementsModal) achievementsModal.hidden = true;
+}
+
+let _achToastQueue = [];
+let _achToastShowing = false;
+
+function showAchievementToast(def) {
+  if (!achUnlockToast) return;
+  _achToastQueue.push(def);
+  drainAchToastQueue();
+}
+
+function drainAchToastQueue() {
+  if (_achToastShowing || _achToastQueue.length === 0) return;
+  const def = _achToastQueue.shift();
+  _achToastShowing = true;
+  achUnlockIcon.textContent = def.icon || "🏆";
+  achUnlockTitle.textContent = def.title || "Unlocked";
+  achUnlockDesc.textContent = def.desc || "";
+  achUnlockToast.classList.remove("leaving");
+  achUnlockToast.hidden = false;
+  // Use the SFX victory cue — short fanfare, fits perfectly.
+  SFX.playVictory();
+  setTimeout(() => {
+    achUnlockToast.classList.add("leaving");
+    setTimeout(() => {
+      achUnlockToast.hidden = true;
+      _achToastShowing = false;
+      drainAchToastQueue();
+    }, 400);
+  }, 4200);
+}
+
+document.addEventListener("achievement-unlocked", (e) => {
+  showAchievementToast(e.detail);
+  updateAchievementsPill();
+  if (achievementsModal && !achievementsModal.hidden) renderAchievementsModal();
+});
+
+Achievements.subscribe(() => updateAchievementsPill());
+
+btnAchievements?.addEventListener("click", openAchievementsModal);
+btnCloseAchievements?.addEventListener("click", closeAchievementsModal);
+achievementsModal?.addEventListener("click", (e) => {
+  if (e.target === achievementsModal) closeAchievementsModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && achievementsModal && !achievementsModal.hidden) closeAchievementsModal();
+});
+
+updateAchievementsPill();
+
+/**
+ * Inspect a finished match result + replay and emit a `match_ended` fact.
+ * Used by every code path that finishes a match.
+ */
+function recordMatchAchievements(result) {
+  if (!result) return;
+  const playerWon = result.winner === 0;
+  const ffa = !!result.ffa || (result.metadata && result.metadata.mode === "battle_royale");
+  // Per-team-max — the largest team size, used by Squad Leader.
+  let perTeamMax = 1;
+  const teams = new Map();
+  for (const p of result.replay?.metadata?.participants ?? []) {
+    teams.set(p.teamId, (teams.get(p.teamId) || 0) + 1);
+  }
+  for (const v of teams.values()) perTeamMax = Math.max(perTeamMax, v);
+
+  // Damage taken by the player robot (id "player") — scan replay events.
+  let damageTaken = 0;
+  for (const frame of result.replay?.frames ?? []) {
+    for (const e of frame.events || []) {
+      if (e.type === "damaged" && e.robotId === "player") damageTaken += e.data?.damage ?? 0;
+    }
+  }
+
+  // Player robot class — from the participant matching playerId "player".
+  let robotClass = null;
+  for (const p of result.replay?.metadata?.participants ?? []) {
+    if (p.playerId === "player") {
+      robotClass = p.program?.robotClass || p.robotClass || null;
+      break;
+    }
+  }
+
+  Achievements.fact("match_ended", {
+    won: playerWon,
+    ffa,
+    perTeamMax,
+    durationTicks: result.tickCount ?? 0,
+    damageTaken,
+    robotClass,
+  });
+}
 
 // ============================================================================
 // Init

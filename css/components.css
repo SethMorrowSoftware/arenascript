@@ -1477,3 +1477,223 @@
 @keyframes kf-out {
   to { opacity: 0; transform: translateX(20px); }
 }
+
+/* ============================================================================
+   Achievements — top-bar pill, modal grid, unlock toast
+   ============================================================================ */
+
+.btn-achievements {
+  padding: 6px 10px;
+  gap: 6px;
+}
+
+.ach-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  background: rgba(170, 85, 255, 0.18);
+  color: #d8b4fe;
+}
+
+.ach-modal {
+  width: 720px;
+  max-width: calc(100vw - 32px);
+}
+
+.ach-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.ach-summary-stat {
+  padding: 12px 8px;
+  text-align: center;
+  background: var(--bg-tertiary);
+}
+
+.ach-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent-cyan);
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
+.ach-stat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+
+.ach-body {
+  display: block;
+  padding: 16px 20px;
+}
+
+.ach-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.ach-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+}
+
+.ach-card.locked { opacity: 0.45; }
+
+.ach-card.unlocked {
+  border-color: rgba(170, 85, 255, 0.5);
+  background: linear-gradient(135deg, rgba(170, 85, 255, 0.08) 0%, rgba(0, 212, 255, 0.05) 100%);
+  box-shadow: 0 0 12px rgba(170, 85, 255, 0.12);
+}
+
+.ach-card-icon {
+  font-size: 26px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.ach-card.unlocked .ach-card-icon {
+  background: rgba(170, 85, 255, 0.15);
+  filter: drop-shadow(0 0 6px rgba(170, 85, 255, 0.4));
+}
+
+.ach-card-body { flex: 1; min-width: 0; }
+
+.ach-card-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ach-card-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.ach-card-progress {
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ach-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ach-progress-fill {
+  height: 100%;
+  background: var(--accent-cyan);
+  border-radius: 2px;
+}
+
+.ach-card.unlocked .ach-progress-fill { background: #c084fc; }
+
+.ach-progress-text {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+
+/* ---- Unlock toast ---- */
+
+.ach-unlock-toast[hidden] { display: none !important; }
+
+.ach-unlock-toast {
+  position: fixed;
+  top: 80px;
+  right: 24px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px 14px 14px;
+  background: linear-gradient(135deg, #1a0d2e 0%, #0d1f2a 100%);
+  border: 1px solid rgba(170, 85, 255, 0.6);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(170, 85, 255, 0.3), 0 0 24px rgba(170, 85, 255, 0.2);
+  animation: ach-toast-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 360px;
+}
+
+.ach-unlock-toast.leaving { animation: ach-toast-out 0.35s ease-in forwards; }
+
+.ach-unlock-icon {
+  font-size: 38px;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(170, 85, 255, 0.15);
+  border: 1px solid rgba(170, 85, 255, 0.4);
+  border-radius: 12px;
+  filter: drop-shadow(0 0 10px rgba(170, 85, 255, 0.5));
+  flex-shrink: 0;
+}
+
+.ach-unlock-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #d8b4fe;
+}
+
+.ach-unlock-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-top: 2px;
+}
+
+.ach-unlock-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+@keyframes ach-toast-in {
+  from { opacity: 0; transform: translateX(40px) scale(0.95); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes ach-toast-out {
+  to { opacity: 0; transform: translateX(40px); }
+}
