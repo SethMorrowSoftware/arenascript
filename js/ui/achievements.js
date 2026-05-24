@@ -32,6 +32,10 @@ const ACHIEVEMENTS = [
   // Daily
   { id: "daily_first",   icon: "📅", title: "Daily Devotion",    desc: "Beat the Daily Challenge." },
   { id: "daily_speed",   icon: "🚀", title: "Daily Speedster",   desc: "Beat the Daily Challenge in under 20 seconds." },
+
+  // Tournament
+  { id: "bracket_champ", icon: "🏆", title: "Bracket Champion",  desc: "Win a tournament." },
+  { id: "cinderella",    icon: "🥂", title: "Cinderella Run",    desc: "Win a tournament from the lower half of seeds." },
 ];
 
 const listeners = new Set();
@@ -161,6 +165,12 @@ export function fact(type, data = {}) {
   } else if (type === "daily_won") {
     if (unlock(s, "daily_first")) unlockedThisCall.push("daily_first");
     if ((data.durationTicks ?? Infinity) < 600 && unlock(s, "daily_speed")) unlockedThisCall.push("daily_speed");
+  } else if (type === "tournament_won") {
+    if (unlock(s, "bracket_champ")) unlockedThisCall.push("bracket_champ");
+    // Lower half of the seeds = #5..#8 in an 8-bracket, #9..#16 in a 16.
+    if ((data.seed ?? 1) > Math.ceil((data.bracketSize ?? 8) / 2) && unlock(s, "cinderella")) {
+      unlockedThisCall.push("cinderella");
+    }
   }
 
   saveState(s);

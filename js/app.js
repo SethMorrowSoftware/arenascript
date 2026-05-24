@@ -20,6 +20,7 @@ import * as BotLibrary from "./bot-library.js";
 import * as ApiClient from "./api-client.js";
 import * as SFX from "./ui/sfx.js";
 import * as Achievements from "./ui/achievements.js";
+import * as MatchStats from "./ui/match-stats.js";
 import { generateShareCard, downloadBlob } from "./ui/share-card.js";
 import {
   installShortcutHelp,
@@ -2637,6 +2638,16 @@ async function doRunMatch() {
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
   recordMatchAchievements(result);
+  // Track per-opponent W/L for the quick-match flow (1v1 only; team battles
+  // are recorded by tbRunBattle for every enemy roster slot).
+  if (spec.perTeam === 1 && oppKey && oppKey !== "__editor__") {
+    const playerWon = result.winner === 0;
+    const isDraw = result.winner === null;
+    MatchStats.recordVersus(oppKey, {
+      won: isDraw ? null : playerWon,
+      opponentClass: getBotEntry(oppKey)?.class || null,
+    });
+  }
 
   // Capture the share bundle so players can reproduce the exact fight via a
   // `#match=asv1:...` link. The editor source rides on team 0; every
@@ -5378,6 +5389,11 @@ function tbCollectRoster(container, teamFn, nameState) {
 async function tbRunBattle() {
   const nameState = { used: new Set(["you"]), playerUsed: false };
   let participants, mode, label;
+  // Snapshot the enemy roster's bot keys NOW (before the modal closes) so
+  // we can credit per-opponent W/L records after the match finishes.
+  const enemyKeysSnapshot = [...(tbEnemySlots?.querySelectorAll(".tb-bot-card") ?? [])]
+    .map((c) => c.dataset.botKey)
+    .filter((k) => k && k !== "__editor__");
 
   if (tbMode === "royale") {
     const roster = tbCollectRoster(tbRoyaleSlots, () => 0, nameState);
@@ -5438,6 +5454,18 @@ async function tbRunBattle() {
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
   recordMatchAchievements(result);
+  // Credit each enemy-team bot key with a win/loss against the player.
+  // Skipped for battle royale where there's no clear 1v1 opponent.
+  if (mode !== "battle_royale" && enemyKeysSnapshot.length > 0) {
+    const playerWon = result.winner === 0;
+    const isDraw = result.winner === null;
+    for (const k of enemyKeysSnapshot) {
+      MatchStats.recordVersus(k, {
+        won: isDraw ? null : playerWon,
+        opponentClass: getBotEntry(k)?.class || null,
+      });
+    }
+  }
   logToConsole(`Winner: ${result.winner === null ? "DRAW" : `Team ${result.winner}`}  |  ${result.reason}  |  ${result.tickCount} ticks`, "success");
   flushBotLogs(result.botLogs);
   showMatchResults(result, null);
@@ -5663,6 +5691,18 @@ function bpRenderCard({ key, source }) {
     const d = bpDifficulty(key);
     const label = d === 1 ? "EASY" : d === 2 ? "MEDIUM" : "ADVANCED";
     badges.push(`<span class="bp-badge bp-badge-diff-${d}">${label}</span>`);
+  }
+  // Per-opponent record chip — surfaces "you've beaten this 3 times" so the
+  // picker doubles as a personal stats page.
+  const rec = source !== "editor" ? MatchStats.recordFor(key) : null;
+  if (rec && rec.played > 0) {
+    const cls = rec.wins > rec.losses ? "bp-badge-rec-positive"
+              : rec.losses > rec.wins ? "bp-badge-rec-negative"
+              : "bp-badge-rec-even";
+    const label = MatchStats.recordLabel(key);
+    badges.push(`<span class="bp-badge ${cls}" title="Your record vs this bot">${escapeHtml(label)}</span>`);
+  } else if (source !== "editor") {
+    badges.push(`<span class="bp-badge bp-badge-rec-none" title="Never played">NEW</span>`);
   }
   return `
     <button class="bp-card" type="button" role="option" data-bot-key="${escapeHtml(key)}">
@@ -7148,11 +7188,16 @@ async function dcRun() {
   // Record the outcome — assumes lastMatchResult is populated after doRunMatch.
   if (lastMatchResult) {
     const playerWon = lastMatchResult.winner === 0;
+    const isDraw = lastMatchResult.winner === null;
     dcRecordResult(cfg.dayKey, lastMatchResult.tickCount, playerWon);
     dcRender();
+    // doRunMatch already records per-opponent stats; the Daily Challenge
+    // counts as a notable head-to-head, so we don't double-record here.
     if (playerWon) {
       toast(`Daily Challenge: WON in ${dcFormatTicks(lastMatchResult.tickCount)}`, "success");
       Achievements.fact("daily_won", { durationTicks: lastMatchResult.tickCount });
+    } else if (!isDraw) {
+      toast(`Daily Challenge: try again — that was attempt #${(dcGetState()[cfg.dayKey]?.attempts) || 1}`, "info");
     }
   }
 }
@@ -7705,6 +7750,10 @@ async function runTournament() {
       durationTicks: 0,               // tournament isn't a single match — skip speedrun
       damageTaken: 1,                 // skip Untouchable for tournament
       robotClass: compiledPlayer?.program?.robotClass || null,
+    });
+    Achievements.fact("tournament_won", {
+      seed: champion.seed,
+      bracketSize: compiled.length,
     });
   }
 

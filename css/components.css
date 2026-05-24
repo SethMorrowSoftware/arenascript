@@ -1802,15 +1802,19 @@
   gap: 32px;
   overflow-x: auto;
   padding: 16px 4px 32px;
+  align-items: stretch;
 }
 
 .tourn-round {
   display: flex;
   flex-direction: column;
   justify-content: space-around;
-  gap: 24px;
   min-width: 240px;
   position: relative;
+  /* All rounds stretch to the same outer height (align-items: stretch on
+     parent), so `space-around` centers each match within its share of the
+     column — round-2 matches naturally land between their two round-1
+     parents and connector lines on the cards line up. */
 }
 
 .tourn-round-label {
@@ -2019,4 +2023,29 @@
   font-size: 11px;
   letter-spacing: 1px;
   text-transform: uppercase;
+}
+
+/* ============================================================================
+   Bot Picker — per-opponent record chips
+   ============================================================================ */
+
+.bp-badge-rec-positive {
+  background: rgba(34, 197, 94, 0.18);
+  color: var(--accent-green);
+}
+
+.bp-badge-rec-negative {
+  background: rgba(239, 68, 68, 0.18);
+  color: var(--accent-red);
+}
+
+.bp-badge-rec-even {
+  background: rgba(245, 158, 11, 0.18);
+  color: var(--accent-orange);
+}
+
+.bp-badge-rec-none {
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--accent-cyan);
+  opacity: 0.75;
 }
