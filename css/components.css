@@ -24,44 +24,56 @@
   transform: scale(0.97);
 }
 
+/* ---- Unified action-button hierarchy ----
+   All action buttons use the cyan family. Visual rank is conveyed by
+   fill / outline / ghost rather than hue swaps. */
+
 .btn-compile {
-  background: var(--gradient-cyan);
-  color: #001a22;
-  box-shadow: var(--shadow-sm);
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--accent-cyan);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.32);
 }
 
 .btn-compile:hover {
-  box-shadow: var(--shadow-glow-cyan);
-  filter: brightness(1.1);
+  background: rgba(0, 212, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.55);
+  filter: none;
 }
 
 .btn-run {
-  background: var(--gradient-green);
-  color: #001a22;
-  box-shadow: var(--shadow-sm);
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--accent-cyan);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.32);
 }
 
 .btn-run:hover:not(:disabled) {
-  box-shadow: var(--shadow-glow-green);
-  filter: brightness(1.1);
+  background: rgba(0, 212, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.55);
+  filter: none;
 }
 
 .btn-run:disabled {
-  background: rgba(0, 255, 136, 0.06);
-  color: rgba(0, 255, 136, 0.2);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border);
   cursor: not-allowed;
-  box-shadow: none;
 }
 
 .btn-compile-run {
-  background: var(--gradient-purple);
-  color: #fff;
-  box-shadow: var(--shadow-sm);
+  background: linear-gradient(180deg, #00e4ff 0%, #00b8e0 100%);
+  color: #001018;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 212, 255, 0.3);
 }
 
 .btn-compile-run:hover {
-  box-shadow: 0 0 20px rgba(170, 85, 255, 0.2);
-  filter: brightness(1.1);
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 4px 14px rgba(0, 212, 255, 0.32),
+    0 0 0 1px rgba(0, 212, 255, 0.45);
 }
 
 .btn-block {
@@ -1351,18 +1363,27 @@
   font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.2px;
   color: #c084fc;
   background: rgba(170, 85, 255, 0.15);
   padding: 3px 8px;
   border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .dc-date {
   font-size: 10px;
   color: var(--text-muted);
-  letter-spacing: 0.6px;
+  letter-spacing: 0.4px;
   text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dc-head {
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .dc-title {

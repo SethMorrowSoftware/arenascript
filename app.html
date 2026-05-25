@@ -9,6 +9,75 @@
 </head>
 <body data-view="builder">
 
+  <!-- Inline SVG sprite — Lucide-style icons referenced via <use href="#i-…"/>. -->
+  <svg width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+      </symbol>
+      <symbol id="i-library" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>
+      </symbol>
+      <symbol id="i-crosshair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/>
+      </symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M2 12h20"/><path d="M12 3a13.5 13.5 0 0 1 0 18 13.5 13.5 0 0 1 0-18"/>
+      </symbol>
+      <symbol id="i-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+      </symbol>
+      <symbol id="i-bars" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 3v18h18"/><rect x="7" y="13" width="3" height="5"/><rect x="12" y="9" width="3" height="9"/><rect x="17" y="5" width="3" height="13"/>
+      </symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+      </symbol>
+      <symbol id="i-volume-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/>
+      </symbol>
+      <symbol id="i-award" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>
+      </symbol>
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/>
+      </symbol>
+      <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </symbol>
+      <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+      </symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      </symbol>
+      <symbol id="i-grad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 10v6"/><path d="M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5"/>
+      </symbol>
+      <symbol id="i-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><polygon points="16 8 14 14 8 16 10 10 16 8"/>
+      </symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01"/><path d="M10 10h.01"/><path d="M14 10h.01"/><path d="M18 10h.01"/><path d="M7 14h10"/>
+      </symbol>
+      <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+      </symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17.5 19a4.5 4.5 0 1 0-1.3-8.8 7 7 0 1 0-12 4.3"/><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/>
+      </symbol>
+      <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+      </symbol>
+      <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+      </symbol>
+    </defs>
+  </svg>
+
   <!-- Top Bar -->
   <header class="top-bar">
     <div class="top-bar-left">
@@ -20,45 +89,48 @@
 
     <div class="top-bar-actions">
       <button id="btn-quick-battle" class="btn-primary-mini" title="Pick robots and fight — no code required">
-        <span class="qb-icon" aria-hidden="true">&#9876;</span>
+        <svg class="icon icon-sm" aria-hidden="true"><use href="#i-zap"/></svg>
         <span>Quick Battle</span>
       </button>
 
       <button id="btn-open-palette" class="btn-icon btn-icon-search" title="Command palette (Ctrl+K)" aria-label="Search commands">
-        <span class="bi-glyph" aria-hidden="true">&#9906;</span>
-        <span class="kbd-mini" aria-hidden="true">Ctrl K</span>
+        <svg class="icon icon-sm" aria-hidden="true"><use href="#i-search"/></svg>
+        <span class="bi-text">Search</span>
+        <span class="kbd-mini" aria-hidden="true">&#8984; K</span>
       </button>
 
       <div class="popover-wrap" data-popover="help">
-        <button class="btn-icon" data-popover-trigger="help" title="Help &amp; learn" aria-label="Help" aria-haspopup="true" aria-expanded="false">
-          <span aria-hidden="true">?</span>
+        <button class="btn-icon btn-icon-square" data-popover-trigger="help" title="Help &amp; learn" aria-label="Help" aria-haspopup="true" aria-expanded="false">
+          <svg class="icon icon-sm" aria-hidden="true"><use href="#i-help"/></svg>
         </button>
         <div class="popover" data-popover-panel="help" hidden role="menu" aria-label="Help">
           <div class="popover-section-label">Help &amp; learn</div>
           <button id="btn-open-lang-ref" class="popover-item" role="menuitem">
-            <span class="pi-icon">&#128214;</span>
-            <span class="pi-body"><b>Language reference</b><em>Ctrl + /</em></span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-book"/></svg></span>
+            <span class="pi-body"><b>Language reference</b><em>Syntax, sensors, actions</em></span>
+            <span class="pi-kbd">Ctrl /</span>
           </button>
           <a href="learn.html" class="popover-item" role="menuitem">
-            <span class="pi-icon">&#127891;</span>
-            <span class="pi-body"><b>Tutorial</b><em>Open the walkthrough</em></span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-grad"/></svg></span>
+            <span class="pi-body"><b>Tutorial</b><em>Four-chapter walkthrough</em></span>
           </a>
           <button id="btn-open-tour" class="popover-item" role="menuitem">
-            <span class="pi-icon">&#129517;</span>
-            <span class="pi-body"><b>Replay product tour</b><em>For first-timers</em></span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-compass"/></svg></span>
+            <span class="pi-body"><b>Replay product tour</b><em>30-second overview</em></span>
           </button>
           <div class="popover-divider"></div>
           <div class="popover-section-label">Reference</div>
           <button id="btn-open-shortcuts" class="popover-item" role="menuitem">
-            <span class="pi-icon">&#9000;</span>
-            <span class="pi-body"><b>Keyboard shortcuts</b><em>Shift + ?</em></span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-keyboard"/></svg></span>
+            <span class="pi-body"><b>Keyboard shortcuts</b></span>
+            <span class="pi-kbd">Shift ?</span>
           </button>
           <a href="community.html" class="popover-item" role="menuitem">
-            <span class="pi-icon">&#127758;</span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-globe"/></svg></span>
             <span class="pi-body"><b>Community gallery</b><em>Public bots</em></span>
           </a>
           <a href="index.html" class="popover-item" role="menuitem">
-            <span class="pi-icon">&#127968;</span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-home"/></svg></span>
             <span class="pi-body"><b>Back to home</b></span>
           </a>
           <div class="popover-footer">
@@ -71,7 +143,7 @@
         <button class="account-pill" data-popover-trigger="account" aria-haspopup="true" aria-expanded="false" title="Account">
           <span class="avatar-circle" id="auth-avatar">G</span>
           <span id="auth-status" class="avatar-name">Guest</span>
-          <span class="avatar-chev" aria-hidden="true">&#9662;</span>
+          <svg class="icon icon-xs avatar-chev" aria-hidden="true"><use href="#i-chevron-down"/></svg>
         </button>
         <div class="popover popover-account" data-popover-panel="account" hidden role="menu" aria-label="Account">
           <div class="popover-account-header">
@@ -82,15 +154,15 @@
             </div>
           </div>
           <button id="btn-auth-open" class="popover-item popover-item-primary" role="menuitem">
-            <span class="pi-icon">&rarr;</span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-user"/></svg></span>
             <span class="pi-body"><b>Sign in or create account</b><em>Sync bots to the cloud</em></span>
           </button>
           <button id="btn-sync-cloud" class="popover-item" hidden role="menuitem">
-            <span class="pi-icon">&#9729;</span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-cloud"/></svg></span>
             <span class="pi-body"><b>Sync cloud bots</b><em>Pull latest from your account</em></span>
           </button>
           <button id="btn-auth-logout" class="popover-item" hidden role="menuitem">
-            <span class="pi-icon">&#9099;</span>
+            <span class="pi-icon"><svg class="icon icon-sm" aria-hidden="true"><use href="#i-logout"/></svg></span>
             <span class="pi-body"><b>Sign out</b></span>
           </button>
         </div>
@@ -105,20 +177,18 @@
     <nav class="nav-rail" role="navigation" aria-label="Primary navigation">
       <a href="index.html" class="rail-brand" title="ArenaScript home" aria-label="Home">
         <span class="rail-brand-mark">A</span>
-        <span class="rail-brand-text">SCRIPT</span>
       </a>
 
       <div class="rail-group" role="tablist" aria-label="Create">
-        <div class="rail-group-label">Create</div>
         <button class="rail-item view-tab active" data-view="builder" data-view-label="Builder"
-                role="tab" aria-selected="true" title="Builder — write your bot's logic">
-          <span class="rail-icon" aria-hidden="true">&#9998;</span>
-          <span class="rail-text">Builder</span>
+                role="tab" aria-selected="true" aria-label="Builder">
+          <svg class="rail-icon" aria-hidden="true"><use href="#i-code"/></svg>
+          <span class="rail-flyout">Builder</span>
         </button>
         <button class="rail-item view-tab" data-view="library" data-view-label="My Bots"
-                role="tab" aria-selected="false" title="My Bots — your library">
-          <span class="rail-icon" aria-hidden="true">&#128218;</span>
-          <span class="rail-text">My Bots</span>
+                role="tab" aria-selected="false" aria-label="My Bots">
+          <svg class="rail-icon" aria-hidden="true"><use href="#i-library"/></svg>
+          <span class="rail-flyout">My Bots</span>
           <span class="rail-count tab-count" id="tab-count-library">0</span>
         </button>
       </div>
@@ -126,26 +196,25 @@
       <div class="rail-divider" aria-hidden="true"></div>
 
       <div class="rail-group" role="tablist" aria-label="Play">
-        <div class="rail-group-label">Play</div>
         <button class="rail-item view-tab" data-view="arena" data-view-label="Arena"
-                role="tab" aria-selected="false" title="Arena — live match">
-          <span class="rail-icon" aria-hidden="true">&#9876;</span>
-          <span class="rail-text">Arena</span>
+                role="tab" aria-selected="false" aria-label="Arena">
+          <svg class="rail-icon" aria-hidden="true"><use href="#i-crosshair"/></svg>
+          <span class="rail-flyout">Arena</span>
         </button>
         <button class="rail-item view-tab" data-view="community" data-view-label="Community"
-                role="tab" aria-selected="false" title="Community — public bots">
-          <span class="rail-icon" aria-hidden="true">&#127758;</span>
-          <span class="rail-text">Community</span>
+                role="tab" aria-selected="false" aria-label="Community">
+          <svg class="rail-icon" aria-hidden="true"><use href="#i-globe"/></svg>
+          <span class="rail-flyout">Community</span>
         </button>
         <button class="rail-item view-tab" data-view="tournament" data-view-label="Tournament"
-                role="tab" aria-selected="false" title="Tournament — single-elimination bracket">
-          <span class="rail-icon" aria-hidden="true">&#127942;</span>
-          <span class="rail-text">Tournament</span>
+                role="tab" aria-selected="false" aria-label="Tournament">
+          <svg class="rail-icon" aria-hidden="true"><use href="#i-trophy"/></svg>
+          <span class="rail-flyout">Tournament</span>
         </button>
         <button class="rail-item view-tab" data-view="tierlist" data-view-label="Tier List"
-                role="tab" aria-selected="false" title="Tier List — S through D rankings">
-          <span class="rail-icon" aria-hidden="true">&#128202;</span>
-          <span class="rail-text">Tier List</span>
+                role="tab" aria-selected="false" aria-label="Tier List">
+          <svg class="rail-icon" aria-hidden="true"><use href="#i-bars"/></svg>
+          <span class="rail-flyout">Tier List</span>
         </button>
       </div>
 
@@ -153,15 +222,15 @@
 
       <div class="rail-group rail-group-utility">
         <button id="btn-sfx-toggle" class="rail-item rail-util btn-sfx"
-                title="Toggle sound effects" aria-label="Toggle sound effects">
-          <span class="rail-icon sfx-icon" aria-hidden="true">&#128266;</span>
-          <span class="rail-text">Sound</span>
+                aria-label="Toggle sound effects">
+          <svg class="rail-icon sfx-icon" aria-hidden="true"><use href="#i-volume"/></svg>
+          <span class="rail-flyout">Sound</span>
         </button>
         <button id="btn-achievements" class="rail-item rail-util btn-achievements"
-                title="View achievements" aria-label="Achievements">
-          <span class="rail-icon" aria-hidden="true">&#127942;</span>
-          <span class="rail-text">Achievements</span>
-          <span id="ach-pill" class="ach-pill rail-pill">0/0</span>
+                aria-label="Achievements">
+          <svg class="rail-icon" aria-hidden="true"><use href="#i-award"/></svg>
+          <span class="rail-flyout">Achievements</span>
+          <span id="ach-pill" class="rail-mini-pill">0/0</span>
         </button>
       </div>
     </nav>
@@ -969,8 +1038,8 @@
     </div>
   </div>
 
-  <!-- Shortcut hint: tap "?" for help, Ctrl+K for palette -->
-  <button id="btn-show-help" class="floating-help-btn" title="Keyboard shortcuts (Shift+?)" aria-label="Show help">?</button>
+  <!-- Floating help kept in DOM for legacy keybinding hooks, hidden in v2 shell. -->
+  <button id="btn-show-help" class="floating-help-btn" title="Keyboard shortcuts (Shift+?)" aria-label="Show help" hidden>?</button>
 
   <!-- Toast / notification slot -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
