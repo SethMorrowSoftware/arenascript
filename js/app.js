@@ -4189,7 +4189,178 @@ function processFrameEffects(frame, frameIndex) {
   if (killCount > 0) SFX.playExplode();
 }
 
+// ============================================================================
+// Attract Mode — silent demo battle that loops in the idle arena
+// ============================================================================
+//
+// When the user lands on the app and hasn't run a match, we run a silent
+// 2-bot match in the background and loop its replay in the arena canvas.
+// First impression goes from "empty arena waiting for you" to "robots
+// already fighting — click Quick Battle to play". No SFX, no kill feed,
+// no achievement updates — purely cosmetic.
+// ============================================================================
+
+let _attract = {
+  frames: null,
+  labels: {},
+  fxMeta: {},
+  index: 0,
+  animId: 0,
+  lastT: 0,
+  retries: 0,
+  active: false,
+  arenaId: null,
+  starting: false,
+};
+
+const ATTRACT_PAIRS = [
+  ["bruiser", "kiter"],
+  ["fortress", "phantom"],
+  ["sentinel", "oracle"],
+  ["overclock", "zealot"],
+  ["hivemind", "warden"],
+  ["kiter", "fortress"],
+  ["predator", "phantom"],
+];
+
+function attractPickPair() {
+  return ATTRACT_PAIRS[Math.floor(Math.random() * ATTRACT_PAIRS.length)];
+}
+
+/** Build a single match between two presets without engaging the editor. */
+function attractBuildMatch(keyA, keyB, seed, arenaId) {
+  const a = BOT_PRESETS[keyA];
+  const b = BOT_PRESETS[keyB];
+  if (!a || !b) return null;
+  let ca, cb;
+  try { ca = compile(a.source); cb = compile(b.source); }
+  catch { return null; }
+  if (!ca.success || !cb.success) return null;
+
+  const setup = {
+    config: {
+      mode: "duel_1v1",
+      arenaWidth: ARENA_WIDTH,
+      arenaHeight: ARENA_HEIGHT,
+      maxTicks: 1800,           // short enough to loop without dragging
+      tickRate: 30,
+      seed,
+      arenaId,
+    },
+    participants: [
+      { program: ca.program, constants: ca.constants, playerId: a.name, teamId: 0 },
+      { program: cb.program, constants: cb.constants, playerId: b.name, teamId: 1 },
+    ],
+  };
+  try { return runMatch(setup); } catch { return null; }
+}
+
+function attractStop() {
+  if (_attract.animId) cancelAnimationFrame(_attract.animId);
+  _attract = {
+    frames: null, labels: {}, fxMeta: {}, index: 0,
+    animId: 0, lastT: 0, retries: 0, active: false, arenaId: null, starting: false,
+  };
+}
+
+function attractTick(timestamp) {
+  if (!_attract.active || !_attract.frames) return;
+  if (!_attract.lastT) _attract.lastT = timestamp;
+  // ~24 fps — slow enough to read, fast enough to feel alive.
+  if (timestamp - _attract.lastT >= 42) {
+    _attract.lastT = timestamp;
+    const frame = _attract.frames[_attract.index];
+    if (frame) {
+      // Reuse the regular draw pipeline, then stamp a faint "DEMO" badge.
+      drawFrame(frame, _attract.labels);
+      attractOverlay();
+    }
+    _attract.index++;
+    if (_attract.index >= _attract.frames.length) {
+      // Restart with a new pairing for variety.
+      _attract.index = 0;
+      attractKickoff();
+      return;
+    }
+  }
+  _attract.animId = requestAnimationFrame(attractTick);
+}
+
+function attractOverlay() {
+  ctx.save();
+  ctx.font = `700 11px ui-sans-serif, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  const pad = 10;
+  const text = "DEMO BATTLE · click Quick Battle to play";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+  ctx.fillRect(pad - 4, pad - 2, ctx.measureText(text).width + 12, 18);
+  ctx.fillStyle = "#00d4ff";
+  ctx.fillText(text, pad + 2, pad);
+  ctx.restore();
+}
+
+/**
+ * Try to launch a new attract-mode match. Idempotent — multiple calls
+ * during start-up converge to a single running animation.
+ */
+function attractKickoff() {
+  if (_attract.starting) return;
+  if (currentView === "arena" && replayData) return; // real match running
+  _attract.starting = true;
+
+  // Pick a pair that gives a watchable match (not a one-hit KO).
+  const pair = attractPickPair();
+  const arenaId = getMatchArenaId();
+  const seed = Math.floor(Math.random() * 2147483646);
+
+  const result = attractBuildMatch(pair[0], pair[1], seed, arenaId);
+  _attract.starting = false;
+  if (!result) {
+    if (_attract.retries++ < 3) setTimeout(attractKickoff, 200);
+    return;
+  }
+  if (result.tickCount < 60) {
+    // Too short — re-roll once before showing
+    if (_attract.retries++ < 3) { setTimeout(attractKickoff, 50); return; }
+  }
+  _attract.retries = 0;
+  _attract.frames = result.replay.frames;
+  _attract.labels = {};
+  _attract.fxMeta = {};
+  for (const p of result.replay.metadata?.participants ?? []) {
+    _attract.labels[p.robotId] = p.playerId;
+    _attract.fxMeta[p.robotId] = { name: p.playerId, teamId: p.teamId ?? 0 };
+  }
+  _attract.index = 0;
+  _attract.lastT = 0;
+  _attract.active = true;
+  _attract.arenaId = arenaId;
+  if (_attract.animId) cancelAnimationFrame(_attract.animId);
+  _attract.animId = requestAnimationFrame(attractTick);
+}
+
+/** Should the idle canvas be replaced with an attract-mode demo battle? */
+function attractEnabled() {
+  // Disable when:
+  //  - The user has actually played at least one match (lastMatchResult set)
+  //  - A replay is loaded (real one)
+  //  - The match-live overlay is active
+  if (lastMatchResult) return false;
+  if (replayData) return false;
+  if (matchLiveMode) return false;
+  return true;
+}
+
 function drawIdle() {
+  // Replace the static "Awaiting Combatants" splash with a looping demo
+  // match when nothing's been played yet. Once the player runs their own
+  // match, attract mode shuts off permanently for the session.
+  if (attractEnabled()) {
+    if (!_attract.active) attractKickoff();
+    return;
+  }
+  attractStop();
   // When idle, preview the currently-selected arena preset so players see
   // exactly what terrain they are about to fight on.
   const preset = getArenaPreset(getMatchArenaId());
@@ -4614,6 +4785,7 @@ function startReplay(result, opponentName) {
   replayPlaying = true;
   replaySpeed = parseFloat(replaySpeedSelect.value) || 0.24;
   fxClearAll();
+  attractStop();
   _victoryStingPlayed = false;
   SFX.playStart();
 
