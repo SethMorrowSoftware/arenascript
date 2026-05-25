@@ -22,6 +22,7 @@ import * as SFX from "./ui/sfx.js";
 import * as Achievements from "./ui/achievements.js";
 import * as MatchStats from "./ui/match-stats.js";
 import { generateShareCard, downloadBlob } from "./ui/share-card.js";
+import { exportReplay, extensionForMime } from "./ui/replay-export.js";
 import {
   installShortcutHelp,
   installLangReference,
@@ -8426,6 +8427,78 @@ document.getElementById("btn-share-card")?.addEventListener("click", async () =>
     SFX.playClick();
   } catch (e) {
     toast(`Share card failed: ${e.message ?? String(e)}`, "error");
+  }
+});
+
+// ============================================================================
+// Save Replay — record the live replay playback into a WebM video
+// ============================================================================
+
+let _replayRecording = false;
+
+document.getElementById("btn-save-replay")?.addEventListener("click", async () => {
+  if (_replayRecording) return;
+  if (!replayData || replayData.length === 0) {
+    toast("Run a match first.", "warn");
+    return;
+  }
+  _replayRecording = true;
+  const btn = document.getElementById("btn-save-replay");
+  const originalText = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = "Recording… 0%";
+  }
+  // Pause the live replay so the recorder owns the canvas.
+  const wasPlaying = replayPlaying;
+  if (wasPlaying) stopReplay();
+
+  try {
+    const blob = await exportReplay({
+      canvas: canvasEl,
+      frames: replayData,
+      speed: 2,                                       // 2x — clips stay shareable
+      onProgress: (i, total) => {
+        if (btn) btn.innerHTML = `Recording… ${Math.round((i / total) * 100)}%`;
+      },
+      drawFrame: (frame, prev) => {
+        drawFrame(frame, replayLabels, prev);
+        fxAdvanceAndRender();
+      },
+    });
+    const ext = extensionForMime(blob.type);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const filename = `arenascript-replay-${stamp}.${ext}`;
+
+    // Prefer native share where available, fall back to download.
+    const file = new File([blob], filename, { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: "ArenaScript replay",
+          text: "Watch this ArenaScript battle",
+          files: [file],
+        });
+        toast("Replay shared.", "success");
+      } catch (e) {
+        if (!(e && e.name === "AbortError")) {
+          downloadBlob(blob, filename);
+          toast("Replay downloaded.", "success");
+        }
+      }
+    } else {
+      downloadBlob(blob, filename);
+      toast("Replay downloaded.", "success");
+    }
+    SFX.playClick();
+  } catch (e) {
+    toast(`Replay export failed: ${e.message ?? String(e)}`, "error");
+  } finally {
+    _replayRecording = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    }
   }
 });
 
