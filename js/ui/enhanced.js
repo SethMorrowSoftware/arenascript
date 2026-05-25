@@ -327,39 +327,73 @@ function scoreMatch(cmd, query) {
 // exactly where each feature lives ("top-right", "sidebar", etc.) and the
 // final step highlights the Rookie preset as the obvious next action.
 
-const ONBOARDING_KEY = "arenascript.onboarded.v1";
+const ONBOARDING_KEY = "arenascript.onboarded.v2";
 
 const ONBOARDING_STEPS = [
   {
     title: "Welcome to ArenaScript",
     body: `
-      <p>ArenaScript is a deterministic robot-combat playground. You write a tiny program in a custom language, we compile it to bytecode, and two teams of bots fight a reproducible match you can scrub through like a film reel.</p>
-      <p>This tour takes about a minute. You can re-open it anytime from the <b>Tour</b> button in the top bar.</p>`,
+      <div class="ob-hero">
+        <div class="ob-hero-icon" aria-hidden="true">&#129302;</div>
+        <p class="ob-lede">Build a squad of robots, watch them fight in real time, and — when you're ready — code your own.</p>
+        <ul class="ob-bullets">
+          <li><b>No code required to play.</b> Pick robots from a visual roster and hit fight.</li>
+          <li><b>Deterministic engine.</b> Same seed always replays the exact same match.</li>
+          <li><b>Custom DSL when you want one.</b> Write a robot in ~20 lines and watch it improve.</li>
+        </ul>
+        <p class="ob-foot-hint">This tour takes about 30 seconds. You can re-open it anytime from the <b>Tour</b> button.</p>
+      </div>`,
   },
   {
-    title: "The Editor",
+    title: "Step 1 — Pick your squad",
     body: `
-      <p>The left panel is a syntax-highlighted code editor with autocomplete (start typing any sensor name and a suggestion list appears). It shows inline error squiggles when you compile, and the <b>Console</b> at the bottom prints diagnostics, match results, and anything your bot emits via <code>log(...)</code>.</p>
-      <p>Useful keys: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> compile, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> compile &amp; run, <kbd>Tab</kbd> indent.</p>`,
+      <div class="ob-step">
+        <p>Click the <b>Quick Battle</b> button in the top bar to open the Team Builder. From there you can:</p>
+        <ul class="ob-bullets">
+          <li><b>+ Add</b> opens a visual roster picker — every robot has a tagline, class, and stat bars (HP / SPD / DMG / RNG).</li>
+          <li><b>Change</b> swaps a slot. <b>Auto-fill</b> drops in varied opponents.</li>
+          <li>Toggle <b>Battle Royale</b> for a free-for-all with up to 20 bots.</li>
+        </ul>
+        <p class="ob-pro-tip"><b>Pro tip:</b> the star ⭐ icon is <em>your</em> editor bot. Every battle features it by default.</p>
+      </div>`,
+    action: { label: "Try it now", openTeamBuilder: true },
   },
   {
-    title: "The Arena",
+    title: "Step 2 — Watch the fight",
     body: `
-      <p>The right panel renders the match. Pick an opponent and an arena from the sidebar (switch to the <b>Arena</b> tab), then hit <b>Run Match</b>. Matches are deterministic for a given seed — change the seed to vary the fight.</p>
-      <p>After a match finishes you get a scrubber, step-back/step-forward buttons, bookmarks for first-damage and first-kill, and variable-speed playback.</p>`,
+      <div class="ob-step">
+        <p>Hit <b>Run Battle</b> and the arena takes over the screen with a cinematic broadcast view:</p>
+        <ul class="ob-bullets">
+          <li><b>Live HP bars</b> for every combatant on the left and right rails.</li>
+          <li><b>Kill feed</b> on the top right shows who got eliminated.</li>
+          <li><b>Floating damage numbers</b> + explosions fire as it happens.</li>
+          <li><b>Replay scrubber</b> lets you rewind, step, and re-watch at 0.24× → 8× speed.</li>
+        </ul>
+        <p>Each class has a distinct silhouette: <b>brawler</b> hexagon, <b>ranger</b> kite, <b>tank</b> octagon, <b>support</b> cross.</p>
+      </div>`,
   },
   {
-    title: "Tutorial bots",
+    title: "Step 3 — Today's challenge",
     body: `
-      <p>Open the sidebar <b>Start Here · Tutorial</b> section and step through <b>Rookie</b> → <b>Scout</b> → <b>Predator</b>. Each is heavily commented and demonstrates one major concept (basic loop, state + logging, full predictive combat).</p>
-      <p>Press <kbd>Ctrl</kbd>+<kbd>/</kbd> to open the full language reference, or <kbd>Ctrl</kbd>+<kbd>K</kbd> for the command palette (fuzzy-search everything).</p>`,
+      <div class="ob-step">
+        <p>Every day brings a fresh <b>Daily Challenge</b>: a fixed opponent + arena + seed that's the same for everyone. Beat them and your best time gets logged locally.</p>
+        <p>You'll see it on the <b>Builder</b> sidebar — purple card at the top.</p>
+        <p class="ob-pro-tip"><b>Compete socially:</b> share your seed link from the Arena view ("Share" button) so a friend can run the exact same fight.</p>
+      </div>`,
   },
   {
-    title: "Save your work",
+    title: "Step 4 — Build your own bot",
     body: `
-      <p>The <b>Save to Library</b> button stores your compiled bot to the browser-local library. The <b>My Bots</b> tab lists every saved bot; you can upload <code>.arena</code> files or sync them to the cloud if you sign in.</p>
-      <p>That's it! Click <b>Get Started</b> to load the Rookie tutorial bot — a 12-line starter that's the cleanest example of the full program shape.</p>`,
-    action: { label: "Get Started", bot: "rookie" },
+      <div class="ob-step">
+        <p>When you're ready to code, the <b>Builder</b> tab has a syntax-highlighted editor with autocomplete and inline errors. Start from one of the heavily-commented tutorial bots in the sidebar:</p>
+        <ul class="ob-bullets">
+          <li><b>Rookie</b> — 12 lines, the cleanest possible bot</li>
+          <li><b>Scout</b> — introduces <code>state</code>, <code>log()</code>, waypoints</li>
+          <li><b>Predator</b> — full predictive combat, dodging, hive coordination</li>
+        </ul>
+        <p>Save your bot, sign in to sync it to the cloud, and click <b>Share</b> to publish it to the <b>Community</b> gallery for everyone to play.</p>
+      </div>`,
+    action: { label: "Let's go", bot: "rookie" },
   },
 ];
 
@@ -389,9 +423,14 @@ export function installOnboarding({ loadBot } = {}) {
       `<span class="dot${i === current ? " active" : ""}"></span>`
     ).join("");
     prevBtn.disabled = current === 0;
-    // Last step re-labels the primary CTA and optionally triggers an action.
+    // Steps can override the Next-button label; the final step uses its
+    // action label, intermediate steps with an action use it too.
     const isLast = current === ONBOARDING_STEPS.length - 1;
-    nextBtn.textContent = isLast ? (step.action?.label ?? "Done") : "Next";
+    if (step.action?.label) {
+      nextBtn.textContent = step.action.label;
+    } else {
+      nextBtn.textContent = isLast ? "Done" : "Next";
+    }
   }
 
   function open() {
@@ -406,12 +445,24 @@ export function installOnboarding({ loadBot } = {}) {
   }
 
   function next() {
+    const step = ONBOARDING_STEPS[current];
+    const isLast = current === ONBOARDING_STEPS.length - 1;
+    // Intermediate step CTA (e.g. "Try it now") — fire the action then advance.
+    if (!isLast && step.action?.openTeamBuilder) {
+      close();
+      // Defer so the modal closes cleanly before another modal opens.
+      setTimeout(() => {
+        document.getElementById("btn-quick-battle")?.click();
+      }, 100);
+      // Mark the tour as seen — they've taken the action.
+      markSeen();
+      return;
+    }
     if (current < ONBOARDING_STEPS.length - 1) {
       current++;
       render();
       return;
     }
-    const step = ONBOARDING_STEPS[current];
     if (step.action && typeof loadBot === "function" && step.action.bot) {
       try { loadBot(step.action.bot); } catch (e) { /* non-fatal */ }
     }

@@ -18,6 +18,11 @@ import {
 } from "./engine/arena-presets.js";
 import * as BotLibrary from "./bot-library.js";
 import * as ApiClient from "./api-client.js";
+import * as SFX from "./ui/sfx.js";
+import * as Achievements from "./ui/achievements.js";
+import * as MatchStats from "./ui/match-stats.js";
+import { generateShareCard, downloadBlob } from "./ui/share-card.js";
+import { exportReplay, extensionForMime } from "./ui/replay-export.js";
 import {
   installShortcutHelp,
   installLangReference,
@@ -2488,6 +2493,33 @@ const AUTOFILL_POOL = [
   "hivemind", "phantom", "warden", "overclock", "oracle", "zealot", "predator",
 ];
 
+// Display metadata for the visual bot picker: tagline + role + difficulty.
+// Difficulty 1 = great first pick, 3 = advanced behavior worth studying.
+const BOT_META = {
+  rookie:    { tagline: "Walks forward and swings. Learn the basics.",       role: "Tutorial",  difficulty: 1 },
+  scout:     { tagline: "Patrols waypoints and logs what it sees.",          role: "Tutorial",  difficulty: 1 },
+  bruiser:   { tagline: "Closes the gap and brawls until something dies.",   role: "Aggressor", difficulty: 1 },
+  kiter:     { tagline: "Stays at range, peppers from a safe distance.",     role: "Skirmisher",difficulty: 1 },
+  fortress:  { tagline: "Anchors objectives, eats damage, returns fire.",    role: "Anchor",    difficulty: 1 },
+  healer:    { tagline: "Sticks to allies and keeps them topped up.",        role: "Support",   difficulty: 1 },
+  flanker:   { tagline: "Skirts the edges and picks off stragglers.",        role: "Flanker",   difficulty: 2 },
+  sentinel:  { tagline: "Overwatches a lane, punishes anyone who crosses.",  role: "Defender",  difficulty: 2 },
+  hivemind:  { tagline: "Coordinates with teammates to focus-fire targets.", role: "Squad",     difficulty: 2 },
+  phantom:   { tagline: "Cloaks in, executes a kill, fades out.",            role: "Assassin",  difficulty: 3 },
+  warden:    { tagline: "Mines chokepoints and locks down the objective.",   role: "Zoner",     difficulty: 2 },
+  overclock: { tagline: "Switches modes mid-fight to counter the threat.",   role: "Adaptive",  difficulty: 3 },
+  oracle:    { tagline: "Predicts movement, leads shots, dodges incoming.",  role: "Predictor", difficulty: 3 },
+  zealot:    { tagline: "Hunts attackers, prioritizes weakened targets.",    role: "Reactive",  difficulty: 2 },
+  predator:  { tagline: "Showcase apex predator using the full sensor kit.", role: "Apex",      difficulty: 3 },
+};
+
+const BOT_PICKER_ORDER = [
+  "rookie", "scout",
+  "bruiser", "kiter", "fortress", "healer", "flanker", "sentinel",
+  "hivemind", "phantom", "warden", "overclock",
+  "oracle", "zealot", "predator",
+];
+
 /** The currently-selected quick-match mode (falls back to a duel). */
 function getMatchMode() {
   const v = matchModeSelect?.value;
@@ -2606,6 +2638,17 @@ async function doRunMatch() {
 
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
+  recordMatchAchievements(result);
+  // Track per-opponent W/L for the quick-match flow (1v1 only; team battles
+  // are recorded by tbRunBattle for every enemy roster slot).
+  if (spec.perTeam === 1 && oppKey && oppKey !== "__editor__") {
+    const playerWon = result.winner === 0;
+    const isDraw = result.winner === null;
+    MatchStats.recordVersus(oppKey, {
+      won: isDraw ? null : playerWon,
+      opponentClass: getBotEntry(oppKey)?.class || null,
+    });
+  }
 
   // Capture the share bundle so players can reproduce the exact fight via a
   // `#match=asv1:...` link. The editor source rides on team 0; every
@@ -2879,6 +2922,7 @@ async function doRunTeamSimulation() {
   hideMatchLoading();
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
+  recordMatchAchievements(result);
   const opponentName = teamPreset.name;
   logToConsole(`\n--- Team Simulation: ${teamPreset.name} ---`, "event");
   logToConsole(`Winner: ${result.winner === null ? "DRAW" : `Team ${result.winner}`} | ${result.reason}`, "success");
@@ -3368,6 +3412,105 @@ function drawArenaBackground() {
   ctx.restore();
 }
 
+/**
+ * Draw a class-specific robot silhouette. Each class has a distinctive shape
+ * that reads at a glance:
+ *   brawler — bulky hexagon (heavy aggressor)
+ *   ranger  — kite / arrowhead aligned to heading (sleek skirmisher)
+ *   tank    — octagon with armor plates (fortified)
+ *   support — rounded square with cross emblem (utility)
+ */
+function drawClassBody(ctx2d, cx, cy, radius, robotClass, color, fill, heading) {
+  ctx2d.lineJoin = "round";
+  ctx2d.strokeStyle = color;
+  ctx2d.lineWidth = 1.5;
+
+  // Angle aligned to heading so silhouettes feel directional.
+  const ang = heading && (heading.x !== 0 || heading.y !== 0)
+    ? Math.atan2(heading.y, heading.x)
+    : 0;
+
+  const polygon = (n, rOuter, rInner, rotateOffset = 0) => {
+    ctx2d.beginPath();
+    for (let i = 0; i < n; i++) {
+      const a = ang + rotateOffset + (i / n) * Math.PI * 2;
+      const r = rInner != null && i % 2 === 1 ? rInner : rOuter;
+      const px = cx + Math.cos(a) * r;
+      const py = cy + Math.sin(a) * r;
+      if (i === 0) ctx2d.moveTo(px, py);
+      else ctx2d.lineTo(px, py);
+    }
+    ctx2d.closePath();
+  };
+
+  if (robotClass === "tank") {
+    // Octagonal armored plate
+    polygon(8, radius * 1.15, null, Math.PI / 8);
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+    // Inner core ring for a "turret" feel.
+    ctx2d.beginPath();
+    ctx2d.arc(cx, cy, radius * 0.55, 0, Math.PI * 2);
+    ctx2d.strokeStyle = color;
+    ctx2d.lineWidth = 1;
+    ctx2d.stroke();
+  } else if (robotClass === "ranger") {
+    // Forward-pointing kite (longer along heading axis).
+    const tip   = radius * 1.55;
+    const back  = radius * 0.95;
+    const sideR = radius * 0.85;
+    const sx = Math.cos(ang), sy = Math.sin(ang);
+    const nx = -sy, ny = sx;
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx + sx * tip,            cy + sy * tip);
+    ctx2d.lineTo(cx + nx * sideR,          cy + ny * sideR);
+    ctx2d.lineTo(cx - sx * back,           cy - sy * back);
+    ctx2d.lineTo(cx - nx * sideR,          cy - ny * sideR);
+    ctx2d.closePath();
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+  } else if (robotClass === "support") {
+    // Rounded square + cross emblem.
+    const half = radius * 0.95;
+    const r = radius * 0.3;
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx - half + r, cy - half);
+    ctx2d.lineTo(cx + half - r, cy - half);
+    ctx2d.quadraticCurveTo(cx + half, cy - half, cx + half, cy - half + r);
+    ctx2d.lineTo(cx + half, cy + half - r);
+    ctx2d.quadraticCurveTo(cx + half, cy + half, cx + half - r, cy + half);
+    ctx2d.lineTo(cx - half + r, cy + half);
+    ctx2d.quadraticCurveTo(cx - half, cy + half, cx - half, cy + half - r);
+    ctx2d.lineTo(cx - half, cy - half + r);
+    ctx2d.quadraticCurveTo(cx - half, cy - half, cx - half + r, cy - half);
+    ctx2d.closePath();
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+    // Cross emblem
+    const armW = radius * 0.22;
+    const armL = radius * 0.55;
+    ctx2d.fillStyle = "rgba(0,0,0,0.45)";
+    ctx2d.fillRect(cx - armW, cy - armL, armW * 2, armL * 2);
+    ctx2d.fillRect(cx - armL, cy - armW, armL * 2, armW * 2);
+  } else {
+    // brawler — beefy hexagon
+    polygon(6, radius * 1.2, null, Math.PI / 6);
+    ctx2d.fillStyle = fill;
+    ctx2d.fill();
+    ctx2d.stroke();
+    // Inner "knuckle" stripe
+    ctx2d.beginPath();
+    ctx2d.moveTo(cx - radius * 0.7, cy);
+    ctx2d.lineTo(cx + radius * 0.7, cy);
+    ctx2d.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx2d.lineWidth = 1.5;
+    ctx2d.stroke();
+  }
+}
+
 function drawRobot(x, y, health, maxHealth, energy, maxEnergy, teamId, label, isAlive, action, robotClass, extras = {}) {
   const s = canvasScale();
   const cx = x * s;
@@ -3476,19 +3619,13 @@ function drawRobot(x, y, health, maxHealth, energy, maxEnergy, teamId, label, is
     ctx.stroke();
   }
 
-  // Body with gradient
+  // Body with gradient — silhouette depends on class so a glance reveals role.
   ctx.save();
   ctx.globalAlpha = bodyAlpha;
   const bodyGrad = ctx.createRadialGradient(cx - radius * 0.3, cy - radius * 0.3, 0, cx, cy, radius);
   bodyGrad.addColorStop(0, color);
   bodyGrad.addColorStop(1, teamId === 0 ? "#006688" : "#881122");
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fillStyle = bodyGrad;
-  ctx.fill();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+  drawClassBody(ctx, cx, cy, radius, robotClass, color, bodyGrad, heading);
 
   // Heading arrow — small triangle at the front so it's obvious which way
   // the robot is facing. Only meaningful when heading is non-zero.
@@ -3856,7 +3993,375 @@ function drawFrame(frame, labels, prevFrame) {
   updateScoreboard(frame);
 }
 
+// ============================================================================
+// Battle effects — floating damage numbers + explosion bursts + kill feed
+// ============================================================================
+
+const _fxParticles = [];           // { kind, x, y, vx, vy, life, maxLife, text, color, size }
+const _killFeedEntries = [];       // { el, expiresAt }
+let _lastFxFrameIndex = -1;        // Last frame whose events we processed for FX
+let _fxMeta = {};                  // robotId -> { name, teamId } for kill-feed labels
+const KILL_FEED_TTL_MS = 4500;
+const killFeedEl = document.getElementById("kill-feed");
+
+function fxClearAll() {
+  _fxParticles.length = 0;
+  _lastFxFrameIndex = -1;
+  if (killFeedEl) killFeedEl.innerHTML = "";
+  _killFeedEntries.length = 0;
+}
+
+function fxSpawnDamageNumber(x, y, dmg, isPlayerSide) {
+  _fxParticles.push({
+    kind: "dmg", x, y,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: -0.6,
+    life: 0, maxLife: 60,
+    text: `-${Math.round(dmg)}`,
+    color: isPlayerSide ? "#ff4d6d" : "#fef08a",
+    size: dmg > 20 ? 14 : 11,
+  });
+}
+
+function fxSpawnExplosion(x, y) {
+  // Outer ring + burst
+  _fxParticles.push({ kind: "ring", x, y, life: 0, maxLife: 28, color: "#fbbf24" });
+  for (let i = 0; i < 10; i++) {
+    const ang = (i / 10) * Math.PI * 2 + Math.random() * 0.3;
+    const speed = 1.5 + Math.random() * 1.2;
+    _fxParticles.push({
+      kind: "spark", x, y,
+      vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+      life: 0, maxLife: 24 + Math.floor(Math.random() * 10),
+      color: i % 2 === 0 ? "#fbbf24" : "#ef4444",
+    });
+  }
+}
+
+function fxAdvanceAndRender() {
+  if (_fxParticles.length === 0) return;
+  const s = canvasScale();
+  const { ox, oy } = canvasOffset();
+  ctx.save();
+  ctx.translate(ox, oy);
+
+  for (let i = _fxParticles.length - 1; i >= 0; i--) {
+    const p = _fxParticles[i];
+    p.life++;
+    if (p.life >= p.maxLife) { _fxParticles.splice(i, 1); continue; }
+    const t = p.life / p.maxLife;
+    const alpha = 1 - t;
+
+    if (p.kind === "dmg") {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy *= 0.96;
+      ctx.font = `700 ${p.size}px var(--font-mono, monospace)`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = alpha;
+      // Soft outline so numbers read against any background.
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(0,0,0,0.7)";
+      ctx.strokeText(p.text, p.x * s, p.y * s);
+      ctx.fillText(p.text, p.x * s, p.y * s);
+    } else if (p.kind === "spark") {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.92;
+      p.vy *= 0.92;
+      ctx.beginPath();
+      ctx.arc(p.x * s, p.y * s, Math.max(0.5, (1 - t) * 2.5), 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = alpha;
+      ctx.fill();
+    } else if (p.kind === "ring") {
+      const r = t * 3.5 * s;
+      ctx.beginPath();
+      ctx.arc(p.x * s, p.y * s, r, 0, Math.PI * 2);
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 2 * (1 - t);
+      ctx.globalAlpha = alpha;
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+function killFeedAdd(html) {
+  if (!killFeedEl) return;
+  const el = document.createElement("div");
+  el.className = "kill-feed-entry";
+  el.innerHTML = html;
+  killFeedEl.appendChild(el);
+  const entry = { el, expiresAt: performance.now() + KILL_FEED_TTL_MS };
+  _killFeedEntries.push(entry);
+
+  // Trim to 4 entries on screen for legibility.
+  while (_killFeedEntries.length > 4) {
+    const old = _killFeedEntries.shift();
+    old.el.remove();
+  }
+  scheduleKillFeedSweep();
+}
+
+let _killFeedSweepHandle = null;
+function scheduleKillFeedSweep() {
+  if (_killFeedSweepHandle) return;
+  _killFeedSweepHandle = setInterval(() => {
+    const now = performance.now();
+    for (let i = _killFeedEntries.length - 1; i >= 0; i--) {
+      const entry = _killFeedEntries[i];
+      if (now < entry.expiresAt) continue;
+      entry.el.classList.add("kf-leaving");
+      _killFeedEntries.splice(i, 1);
+      setTimeout(() => entry.el.remove(), 450);
+    }
+    if (_killFeedEntries.length === 0) {
+      clearInterval(_killFeedSweepHandle);
+      _killFeedSweepHandle = null;
+    }
+  }, 250);
+}
+
+/**
+ * Map a robot id to a friendly display name + team color. Pulls from the
+ * replayLabels meta used by the existing match HUD.
+ */
+function fxLabelFor(robotId) {
+  const meta = _fxMeta[robotId];
+  if (meta) return meta;
+  const name = replayLabels?.[robotId];
+  return { name: name || robotId, teamId: 0 };
+}
+
+function fxTeamColor(teamId) {
+  return teamId === 0 ? "#00d4ff" : "#ff3355";
+}
+
+/**
+ * Process a newly-rendered frame: dispatch sounds, spawn damage particles,
+ * push kill-feed entries. Idempotent across re-renders of the same frame
+ * (we only fire once per frame index per replay).
+ */
+function processFrameEffects(frame, frameIndex) {
+  if (!frame || frameIndex <= _lastFxFrameIndex) return;
+  _lastFxFrameIndex = frameIndex;
+
+  const events = frame.events || [];
+  if (events.length === 0) return;
+
+  // Quick robotId → position lookup
+  const positions = new Map();
+  for (const r of frame.robots || []) positions.set(r.id, r.position);
+
+  let damageCount = 0;
+  let killCount = 0;
+  for (const e of events) {
+    if (!e) continue;
+    if (e.type === "damaged" && e.data) {
+      damageCount++;
+      const pos = positions.get(e.robotId);
+      if (pos && e.data.damage > 0) {
+        const label = fxLabelFor(e.robotId);
+        fxSpawnDamageNumber(pos.x, pos.y - 2, e.data.damage, label.teamId === 0);
+      }
+    } else if (e.type === "destroyed") {
+      killCount++;
+      const pos = positions.get(e.robotId);
+      if (pos) fxSpawnExplosion(pos.x, pos.y);
+
+      const victim = fxLabelFor(e.robotId);
+      const killerId = e.data?.killedBy ?? e.data?.sourceId;
+      const killer = killerId && killerId !== e.robotId ? fxLabelFor(killerId) : null;
+      const victimChip = `<span class="kf-icon" style="background:${fxTeamColor(victim.teamId)}22;color:${fxTeamColor(victim.teamId)};">${escapeHtml((victim.name || "?").slice(0,1).toUpperCase())}</span>`;
+      if (killer && killer.name && killer.name !== victim.name) {
+        const killerChip = `<span class="kf-icon" style="background:${fxTeamColor(killer.teamId)}22;color:${fxTeamColor(killer.teamId)};">${escapeHtml((killer.name || "?").slice(0,1).toUpperCase())}</span>`;
+        killFeedAdd(`${killerChip}<span>${escapeHtml(killer.name)}</span><span class="kf-arrow">&#9876;</span>${victimChip}<span class="kf-victim">${escapeHtml(victim.name)}</span>`);
+      } else {
+        killFeedAdd(`<span class="kf-suicide">&#10005;</span>${victimChip}<span class="kf-victim">${escapeHtml(victim.name)} eliminated</span>`);
+      }
+    }
+  }
+
+  if (damageCount > 0) SFX.playHit();
+  if (killCount > 0) SFX.playExplode();
+}
+
+// ============================================================================
+// Attract Mode — silent demo battle that loops in the idle arena
+// ============================================================================
+//
+// When the user lands on the app and hasn't run a match, we run a silent
+// 2-bot match in the background and loop its replay in the arena canvas.
+// First impression goes from "empty arena waiting for you" to "robots
+// already fighting — click Quick Battle to play". No SFX, no kill feed,
+// no achievement updates — purely cosmetic.
+// ============================================================================
+
+let _attract = {
+  frames: null,
+  labels: {},
+  fxMeta: {},
+  index: 0,
+  animId: 0,
+  lastT: 0,
+  retries: 0,
+  active: false,
+  arenaId: null,
+  starting: false,
+};
+
+const ATTRACT_PAIRS = [
+  ["bruiser", "kiter"],
+  ["fortress", "phantom"],
+  ["sentinel", "oracle"],
+  ["overclock", "zealot"],
+  ["hivemind", "warden"],
+  ["kiter", "fortress"],
+  ["predator", "phantom"],
+];
+
+function attractPickPair() {
+  return ATTRACT_PAIRS[Math.floor(Math.random() * ATTRACT_PAIRS.length)];
+}
+
+/** Build a single match between two presets without engaging the editor. */
+function attractBuildMatch(keyA, keyB, seed, arenaId) {
+  const a = BOT_PRESETS[keyA];
+  const b = BOT_PRESETS[keyB];
+  if (!a || !b) return null;
+  let ca, cb;
+  try { ca = compile(a.source); cb = compile(b.source); }
+  catch { return null; }
+  if (!ca.success || !cb.success) return null;
+
+  const setup = {
+    config: {
+      mode: "duel_1v1",
+      arenaWidth: ARENA_WIDTH,
+      arenaHeight: ARENA_HEIGHT,
+      maxTicks: 1800,           // short enough to loop without dragging
+      tickRate: 30,
+      seed,
+      arenaId,
+    },
+    participants: [
+      { program: ca.program, constants: ca.constants, playerId: a.name, teamId: 0 },
+      { program: cb.program, constants: cb.constants, playerId: b.name, teamId: 1 },
+    ],
+  };
+  try { return runMatch(setup); } catch { return null; }
+}
+
+function attractStop() {
+  if (_attract.animId) cancelAnimationFrame(_attract.animId);
+  _attract = {
+    frames: null, labels: {}, fxMeta: {}, index: 0,
+    animId: 0, lastT: 0, retries: 0, active: false, arenaId: null, starting: false,
+  };
+}
+
+function attractTick(timestamp) {
+  if (!_attract.active || !_attract.frames) return;
+  if (!_attract.lastT) _attract.lastT = timestamp;
+  // ~24 fps — slow enough to read, fast enough to feel alive.
+  if (timestamp - _attract.lastT >= 42) {
+    _attract.lastT = timestamp;
+    const frame = _attract.frames[_attract.index];
+    if (frame) {
+      // Reuse the regular draw pipeline, then stamp a faint "DEMO" badge.
+      drawFrame(frame, _attract.labels);
+      attractOverlay();
+    }
+    _attract.index++;
+    if (_attract.index >= _attract.frames.length) {
+      // Restart with a new pairing for variety.
+      _attract.index = 0;
+      attractKickoff();
+      return;
+    }
+  }
+  _attract.animId = requestAnimationFrame(attractTick);
+}
+
+function attractOverlay() {
+  ctx.save();
+  ctx.font = `700 11px ui-sans-serif, sans-serif`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  const pad = 10;
+  const text = "DEMO BATTLE · click Quick Battle to play";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+  ctx.fillRect(pad - 4, pad - 2, ctx.measureText(text).width + 12, 18);
+  ctx.fillStyle = "#00d4ff";
+  ctx.fillText(text, pad + 2, pad);
+  ctx.restore();
+}
+
+/**
+ * Try to launch a new attract-mode match. Idempotent — multiple calls
+ * during start-up converge to a single running animation.
+ */
+function attractKickoff() {
+  if (_attract.starting) return;
+  if (currentView === "arena" && replayData) return; // real match running
+  _attract.starting = true;
+
+  // Pick a pair that gives a watchable match (not a one-hit KO).
+  const pair = attractPickPair();
+  const arenaId = getMatchArenaId();
+  const seed = Math.floor(Math.random() * 2147483646);
+
+  const result = attractBuildMatch(pair[0], pair[1], seed, arenaId);
+  _attract.starting = false;
+  if (!result) {
+    if (_attract.retries++ < 3) setTimeout(attractKickoff, 200);
+    return;
+  }
+  if (result.tickCount < 60) {
+    // Too short — re-roll once before showing
+    if (_attract.retries++ < 3) { setTimeout(attractKickoff, 50); return; }
+  }
+  _attract.retries = 0;
+  _attract.frames = result.replay.frames;
+  _attract.labels = {};
+  _attract.fxMeta = {};
+  for (const p of result.replay.metadata?.participants ?? []) {
+    _attract.labels[p.robotId] = p.playerId;
+    _attract.fxMeta[p.robotId] = { name: p.playerId, teamId: p.teamId ?? 0 };
+  }
+  _attract.index = 0;
+  _attract.lastT = 0;
+  _attract.active = true;
+  _attract.arenaId = arenaId;
+  if (_attract.animId) cancelAnimationFrame(_attract.animId);
+  _attract.animId = requestAnimationFrame(attractTick);
+}
+
+/** Should the idle canvas be replaced with an attract-mode demo battle? */
+function attractEnabled() {
+  // Disable when:
+  //  - The user has actually played at least one match (lastMatchResult set)
+  //  - A replay is loaded (real one)
+  //  - The match-live overlay is active
+  if (lastMatchResult) return false;
+  if (replayData) return false;
+  if (matchLiveMode) return false;
+  return true;
+}
+
 function drawIdle() {
+  // Replace the static "Awaiting Combatants" splash with a looping demo
+  // match when nothing's been played yet. Once the player runs their own
+  // match, attract mode shuts off permanently for the session.
+  if (attractEnabled()) {
+    if (!_attract.active) attractKickoff();
+    return;
+  }
+  attractStop();
   // When idle, preview the currently-selected arena preset so players see
   // exactly what terrain they are about to fight on.
   const preset = getArenaPreset(getMatchArenaId());
@@ -4228,8 +4733,13 @@ function updateScoreboard(frame) {
 }
 
 /** Reveal the match results scorecard (called when the replay finishes). */
+let _victoryStingPlayed = false;
 function revealMatchResults() {
   if (matchResultsEl) matchResultsEl.classList.add("visible");
+  if (!_victoryStingPlayed) {
+    _victoryStingPlayed = true;
+    SFX.playVictory();
+  }
 }
 
 /** Show the results scorecard only while the final replay frame is on screen. */
@@ -4265,14 +4775,20 @@ function startReplay(result, opponentName) {
   replayData = frames;
   lastReplayBookmarks = computeBookmarks(frames);
   const labelsById = {};
+  _fxMeta = {};
   for (const p of result.replay.metadata?.participants ?? []) {
-    if (p.teamId === 0 && p.playerId === "player") labelsById[p.robotId] = "You";
-    else labelsById[p.robotId] = p.playerId;
+    const name = (p.teamId === 0 && p.playerId === "player") ? "You" : p.playerId;
+    labelsById[p.robotId] = name;
+    _fxMeta[p.robotId] = { name, teamId: p.teamId ?? 0 };
   }
   replayLabels = labelsById;
   replayFrameIndex = 0;
   replayPlaying = true;
   replaySpeed = parseFloat(replaySpeedSelect.value) || 0.24;
+  fxClearAll();
+  attractStop();
+  _victoryStingPlayed = false;
+  SFX.playStart();
 
   // Enter match-live mode — the arena takes over the screen — and build the
   // broadcast overlay (scoreboard, combatant HUD, cinematic intro).
@@ -4330,6 +4846,8 @@ function replayTick(timestamp) {
     const frame = replayData[replayFrameIndex];
     if (!frame) return;
     drawFrame(frame, replayLabels);
+    processFrameEffects(frame, replayFrameIndex);
+    fxAdvanceAndRender();
     replayScrubber.value = replayFrameIndex;
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
 
@@ -4370,10 +4888,15 @@ function toggleReplayPlayPause() {
 function scrubReplay() {
   if (!replayData) return;
   const idx = parseInt(replayScrubber.value, 10);
+  // Scrubbing backwards/forwards shouldn't replay old SFX or kill-feed
+  // entries — wipe FX state and let the new frame re-paint silently.
+  if (idx < _lastFxFrameIndex) fxClearAll();
   replayFrameIndex = idx;
+  _lastFxFrameIndex = Math.max(_lastFxFrameIndex, idx);
   const frame = replayData[idx];
   if (frame) {
     drawFrame(frame, replayLabels);
+    fxAdvanceAndRender();
     replayTickLabel.textContent = `${frame.tick} / ${replayData[replayData.length - 1].tick}`;
     arenaStatus.textContent = `Tick ${frame.tick}`;
     syncResultsToFrame();
@@ -4784,6 +5307,19 @@ function botIconLetter(key) {
   return (entry.name?.charAt(0) || "U").toUpperCase();
 }
 
+/**
+ * Render the contents of an icon swatch — either an <img> if the bot has
+ * an uploaded avatar, or the fallback class letter. Callers wrap this in
+ * a class-colored container (.bot-class-icon / .tm-icon / .bp-card-icon).
+ */
+function botIconInner(key) {
+  const entry = getBotEntry(key);
+  if (entry?.avatar) {
+    return `<img class="bot-avatar-img" src="${escapeHtml(entry.avatar)}" alt="">`;
+  }
+  return escapeHtml(botIconLetter(key));
+}
+
 function tbGetBotClass(key) {
   return getBotEntry(key)?.class ?? "brawler";
 }
@@ -4804,33 +5340,73 @@ function tbAutofillKey(i) {
   return AUTOFILL_POOL[((i % AUTOFILL_POOL.length) + AUTOFILL_POOL.length) % AUTOFILL_POOL.length];
 }
 
-function tbCreateBotCard(team, botKey) {
+/**
+ * Approximate "ceiling" stats used to normalize bars in the picker. Tuned to
+ * what currently exists in CLASS_STATS so the strongest class in each axis
+ * pegs the bar at 100%.
+ */
+const STAT_CEILINGS = { health: 150, moveSpeed: 2.2, attackDamage: 14, attackRange: 8.0 };
+
+function renderStatBars(cls) {
+  const stats = CLASS_STATS[cls] || CLASS_STATS.brawler;
+  const pct = (val, ceil) => Math.max(8, Math.min(100, Math.round((val / ceil) * 100)));
+  const row = (label, val, ceil, kind) => `
+    <div class="tb-stat" title="${label}: ${val}">
+      <span class="tb-stat-label">${label}</span>
+      <div class="tb-stat-bar"><div class="tb-stat-bar-fill ${kind}" style="width:${pct(val, ceil)}%"></div></div>
+    </div>`;
+  return `
+    ${row("HP",  stats.health,       STAT_CEILINGS.health,       "hp")}
+    ${row("SPD", stats.moveSpeed,    STAT_CEILINGS.moveSpeed,    "spd")}
+    ${row("DMG", stats.attackDamage, STAT_CEILINGS.attackDamage, "dmg")}
+    ${row("RNG", stats.attackRange,  STAT_CEILINGS.attackRange,  "rng")}`;
+}
+
+function tbDisplayName(key, entry) {
+  if (entry?.isEditor) return `${entry.name} (you)`;
+  return entry?.name ?? key;
+}
+
+function tbRenderCardContent(card, botKey) {
   const entry = getBotEntry(botKey);
   const cls = entry?.class ?? "brawler";
+  const safeCls = escapeHtml(cls);
+  const meta = BOT_META[botKey];
+  const role = entry?.isEditor ? "Your bot" : (entry?.isUser ? "My Bot" : (meta?.role ?? "Preset"));
+
+  card.dataset.botKey = botKey;
+  card.classList.toggle("tb-card-you", !!entry?.isEditor);
+  card.innerHTML = `
+    <div class="tb-card-icon ${safeCls}">${botIconInner(botKey)}</div>
+    <div class="tb-card-body">
+      <span class="tb-card-name">${escapeHtml(tbDisplayName(botKey, entry))}</span>
+      <span class="tb-card-meta">
+        <span>${safeCls}</span><span class="dot"></span><span>${escapeHtml(role)}</span>
+      </span>
+      <div class="tb-card-stats">${renderStatBars(cls)}</div>
+    </div>
+    <div class="tb-card-actions">
+      <button class="tb-change-btn" type="button" title="Pick a different robot">Change</button>
+      <button class="tb-remove-btn" type="button" title="Remove">&times;</button>
+    </div>`;
+}
+
+function tbCreateBotCard(team, botKey) {
   const card = document.createElement("div");
   card.className = "tb-bot-card";
   card.dataset.team = team;
+  tbRenderCardContent(card, botKey);
 
-  // `cls` is whitelisted upstream but escape defensively against a corrupted
-  // localStorage entry injecting HTML.
-  const safeCls = escapeHtml(cls);
-  card.innerHTML = `
-    <div class="tb-card-icon ${safeCls}">${escapeHtml(botIconLetter(botKey))}</div>
-    <div class="tb-card-body">
-      <select class="tb-card-select">${buildBotSelectOptions(botKey, true)}</select>
-      <span class="tb-card-class">${safeCls}</span>
-    </div>
-    <button class="tb-remove-btn" type="button" title="Remove">&times;</button>`;
-
-  const select = card.querySelector(".tb-card-select");
-  const icon = card.querySelector(".tb-card-icon");
-  const classLabel = card.querySelector(".tb-card-class");
-
-  select.addEventListener("change", () => {
-    const newCls = tbGetBotClass(select.value);
-    icon.className = `tb-card-icon ${newCls}`;
-    icon.textContent = botIconLetter(select.value);
-    classLabel.textContent = newCls;
+  card.querySelector(".tb-change-btn").addEventListener("click", () => {
+    openBotPicker({
+      title: "Replace robot",
+      currentKey: card.dataset.botKey,
+      includeEditor: true,
+      onPick: (newKey) => {
+        tbRenderCardContent(card, newKey);
+        tbUpdateInfo();
+      },
+    });
   });
 
   card.querySelector(".tb-remove-btn").addEventListener("click", () => {
@@ -4966,7 +5542,7 @@ function tbCollectRoster(container, teamFn, nameState) {
   const cards = container ? [...container.querySelectorAll(".tb-bot-card")] : [];
   const out = [];
   for (let i = 0; i < cards.length; i++) {
-    const key = cards[i].querySelector(".tb-card-select")?.value;
+    const key = cards[i].dataset.botKey;
     const entry = getBotEntry(key);
     if (!entry) { logToConsole(`Unknown bot: ${key}`, "error"); return null; }
     let compiled;
@@ -4999,6 +5575,11 @@ function tbCollectRoster(container, teamFn, nameState) {
 async function tbRunBattle() {
   const nameState = { used: new Set(["you"]), playerUsed: false };
   let participants, mode, label;
+  // Snapshot the enemy roster's bot keys NOW (before the modal closes) so
+  // we can credit per-opponent W/L records after the match finishes.
+  const enemyKeysSnapshot = [...(tbEnemySlots?.querySelectorAll(".tb-bot-card") ?? [])]
+    .map((c) => c.dataset.botKey)
+    .filter((k) => k && k !== "__editor__");
 
   if (tbMode === "royale") {
     const roster = tbCollectRoster(tbRoyaleSlots, () => 0, nameState);
@@ -5058,6 +5639,19 @@ async function tbRunBattle() {
 
   telemetry.record(Telemetry.MATCH_DURATION_TICKS, result.tickCount);
   lastMatchResult = result;
+  recordMatchAchievements(result);
+  // Credit each enemy-team bot key with a win/loss against the player.
+  // Skipped for battle royale where there's no clear 1v1 opponent.
+  if (mode !== "battle_royale" && enemyKeysSnapshot.length > 0) {
+    const playerWon = result.winner === 0;
+    const isDraw = result.winner === null;
+    for (const k of enemyKeysSnapshot) {
+      MatchStats.recordVersus(k, {
+        won: isDraw ? null : playerWon,
+        opponentClass: getBotEntry(k)?.class || null,
+      });
+    }
+  }
   logToConsole(`Winner: ${result.winner === null ? "DRAW" : `Team ${result.winner}`}  |  ${result.reason}  |  ${result.tickCount} ticks`, "success");
   flushBotLogs(result.botLogs);
   showMatchResults(result, null);
@@ -5223,17 +5817,201 @@ canvasEl?.addEventListener("mousemove", (e) => {
 
 canvasEl?.addEventListener("mouseleave", hideCanvasTooltip);
 
+// ============================================================================
+// Bot Picker — visual modal for choosing a robot
+// ============================================================================
+
+const botPickerModal = document.getElementById("bot-picker-modal");
+const botPickerTitle = document.getElementById("bot-picker-title");
+const botPickerGrid = document.getElementById("bot-picker-grid");
+const botPickerSearch = document.getElementById("bot-picker-search");
+const botPickerEmpty = document.getElementById("bot-picker-empty");
+
+let _bpOnPick = null;
+let _bpFilterClass = "";
+let _bpQuery = "";
+let _bpIncludeEditor = true;
+let _bpCurrentKey = null;
+let _bpLastFocused = null;
+
+function bpClassFor(key) {
+  return getBotEntry(key)?.class ?? "brawler";
+}
+
+function bpDifficulty(key) {
+  return BOT_META[key]?.difficulty ?? 2;
+}
+
+function bpAllChoices() {
+  const items = [];
+  if (_bpIncludeEditor) {
+    items.push({ key: "__editor__", source: "editor" });
+  }
+  for (const key of BOT_PICKER_ORDER) {
+    if (BOT_PRESETS[key]) items.push({ key, source: "preset" });
+  }
+  for (const bot of BotLibrary.getAll()) {
+    items.push({ key: bot.id, source: "user" });
+  }
+  return items;
+}
+
+function bpRenderCard({ key, source }) {
+  const entry = getBotEntry(key);
+  if (!entry) return "";
+  const cls = entry.class ?? "brawler";
+  const safeCls = escapeHtml(cls);
+  const meta = BOT_META[key];
+  const tagline = source === "editor"
+    ? "Your live editor program — pick this to field your own code."
+    : source === "user"
+    ? "Saved to your library."
+    : (meta?.tagline ?? "No description.");
+  const role = source === "editor" ? "Your bot"
+             : source === "user"   ? "My Bot"
+             : (meta?.role ?? "Preset");
+  const badges = [];
+  if (source === "editor") badges.push(`<span class="bp-badge bp-badge-editor">YOU</span>`);
+  if (source === "user")   badges.push(`<span class="bp-badge bp-badge-user">MY BOT</span>`);
+  if (source === "preset") {
+    const d = bpDifficulty(key);
+    const label = d === 1 ? "EASY" : d === 2 ? "MEDIUM" : "ADVANCED";
+    badges.push(`<span class="bp-badge bp-badge-diff-${d}">${label}</span>`);
+  }
+  // Per-opponent record chip — surfaces "you've beaten this 3 times" so the
+  // picker doubles as a personal stats page.
+  const rec = source !== "editor" ? MatchStats.recordFor(key) : null;
+  if (rec && rec.played > 0) {
+    const cls = rec.wins > rec.losses ? "bp-badge-rec-positive"
+              : rec.losses > rec.wins ? "bp-badge-rec-negative"
+              : "bp-badge-rec-even";
+    const label = MatchStats.recordLabel(key);
+    badges.push(`<span class="bp-badge ${cls}" title="Your record vs this bot">${escapeHtml(label)}</span>`);
+  } else if (source !== "editor") {
+    badges.push(`<span class="bp-badge bp-badge-rec-none" title="Never played">NEW</span>`);
+  }
+  return `
+    <button class="bp-card" type="button" role="option" data-bot-key="${escapeHtml(key)}">
+      <div class="bp-card-head">
+        <div class="bp-card-icon ${safeCls}">${botIconInner(key)}</div>
+        <div class="bp-card-title">
+          <span class="bp-card-name">${escapeHtml(tbDisplayName(key, entry))}</span>
+          <span class="bp-card-sub">${safeCls} · ${escapeHtml(role)}</span>
+        </div>
+      </div>
+      <div class="bp-card-tag">${escapeHtml(tagline)}</div>
+      <div class="bp-card-stats">${renderStatBars(cls)}</div>
+      <div class="bp-card-badges">${badges.join("")}</div>
+    </button>`;
+}
+
+function bpRender() {
+  if (!botPickerGrid) return;
+  const q = _bpQuery.trim().toLowerCase();
+  const items = bpAllChoices().filter(({ key, source }) => {
+    const entry = getBotEntry(key);
+    if (!entry) return false;
+    if (_bpFilterClass && entry.class !== _bpFilterClass) return false;
+    if (q) {
+      const hay = `${entry.name} ${entry.class} ${BOT_META[key]?.role ?? ""} ${BOT_META[key]?.tagline ?? ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  botPickerGrid.innerHTML = items.map(bpRenderCard).join("");
+  if (botPickerEmpty) botPickerEmpty.hidden = items.length > 0;
+}
+
+function openBotPicker({ title = "Pick a Robot", currentKey = null, includeEditor = true, onPick } = {}) {
+  if (!botPickerModal) return;
+  _bpOnPick = onPick;
+  _bpCurrentKey = currentKey;
+  _bpIncludeEditor = includeEditor;
+  _bpQuery = "";
+  _bpFilterClass = "";
+  if (botPickerSearch) botPickerSearch.value = "";
+  for (const f of document.querySelectorAll(".bp-filter")) {
+    f.classList.toggle("active", f.dataset.bpClass === "");
+  }
+  if (botPickerTitle) botPickerTitle.textContent = title;
+  _bpLastFocused = document.activeElement;
+  botPickerModal.hidden = false;
+  bpRender();
+  setTimeout(() => botPickerSearch?.focus(), 30);
+}
+
+function closeBotPicker() {
+  if (botPickerModal) botPickerModal.hidden = true;
+  _bpOnPick = null;
+  if (_bpLastFocused && typeof _bpLastFocused.focus === "function") {
+    try { _bpLastFocused.focus(); } catch {}
+  }
+  _bpLastFocused = null;
+}
+
+botPickerGrid?.addEventListener("click", (e) => {
+  const card = e.target.closest(".bp-card");
+  if (!card) return;
+  const key = card.dataset.botKey;
+  const cb = _bpOnPick;
+  closeBotPicker();
+  if (typeof cb === "function") cb(key);
+});
+
+botPickerSearch?.addEventListener("input", () => {
+  _bpQuery = botPickerSearch.value || "";
+  bpRender();
+});
+
+for (const btn of document.querySelectorAll(".bp-filter")) {
+  btn.addEventListener("click", () => {
+    _bpFilterClass = btn.dataset.bpClass || "";
+    for (const f of document.querySelectorAll(".bp-filter")) {
+      f.classList.toggle("active", f === btn);
+    }
+    bpRender();
+  });
+}
+
+document.getElementById("btn-close-bot-picker")?.addEventListener("click", closeBotPicker);
+document.getElementById("btn-bot-picker-cancel")?.addEventListener("click", closeBotPicker);
+botPickerModal?.addEventListener("click", (e) => {
+  if (e.target === botPickerModal) closeBotPicker();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && botPickerModal && !botPickerModal.hidden) {
+    closeBotPicker();
+  }
+});
+
+// Quick Battle button in the top bar — directly opens the Team Builder.
+document.getElementById("btn-quick-battle")?.addEventListener("click", () => {
+  tbOpenModal();
+});
+
 // Wire Team Builder modal
 btnOpenTeamBuilder?.addEventListener("click", tbOpenModal);
 btnCloseTeamBuilder?.addEventListener("click", tbCloseModal);
 btnTbCancel?.addEventListener("click", tbCloseModal);
 btnTbRun?.addEventListener("click", tbRunBattle);
 
-// Add-bot buttons: append a fresh card with a varied default bot.
+// Add-bot buttons: open the visual picker so the user actually chooses.
 for (const btn of document.querySelectorAll(".tb-add-btn")) {
   btn.addEventListener("click", () => {
     const team = btn.dataset.team;
-    tbAddBot(team, tbAutofillKey(tbCountCards(tbContainerFor(team))));
+    const container = tbContainerFor(team);
+    const cap = team === "royale" ? MAX_ROYALE_SLOTS : MAX_TEAM_SLOTS;
+    if (tbCountCards(container) >= cap) {
+      logToConsole(`Roster is full (max ${cap}).`, "warn");
+      return;
+    }
+    openBotPicker({
+      title: team === "enemy" ? "Add to Red Team"
+           : team === "ally"  ? "Add to Blue Team"
+                              : "Add a combatant",
+      includeEditor: true,
+      onPick: (key) => tbAddBot(team, key),
+    });
   });
 }
 
@@ -5300,7 +6078,7 @@ function getBotEntry(key) {
   if (typeof key === "string" && key.startsWith("user_")) {
     const bot = BotLibrary.getById(key);
     if (!bot) return null;
-    return { name: bot.name, class: bot.class, source: bot.source, isUser: true, id: bot.id };
+    return { name: bot.name, class: bot.class, source: bot.source, isUser: true, id: bot.id, avatar: bot.avatar ?? null };
   }
   const preset = BOT_PRESETS[key];
   if (!preset) return null;
@@ -5353,7 +6131,7 @@ function toast(message, type = "info", timeout = 3500) {
 // ============================================================================
 
 function setView(name) {
-  if (name !== "builder" && name !== "arena" && name !== "library") return;
+  if (name !== "builder" && name !== "arena" && name !== "library" && name !== "community" && name !== "tournament" && name !== "tierlist") return;
 
   const leavingArena = currentView === "arena" && name !== "arena";
   currentView = name;
@@ -5381,14 +6159,27 @@ function setView(name) {
     panel.hidden = panel.dataset.sidebar !== name;
   });
 
-  // Main view content — library is a separate area; builder+arena share workspace
+  // Main view content — library + community + tournament are separate areas
   const workspace = document.querySelector('[data-view-content="workspace"]');
   const libraryView = document.querySelector('[data-view-content="library"]');
-  if (workspace) workspace.hidden = name === "library";
+  const communityView = document.querySelector('[data-view-content="community"]');
+  const tournamentView = document.querySelector('[data-view-content="tournament"]');
+  const tierlistView = document.querySelector('[data-view-content="tierlist"]');
+  const isFullPageView = name === "library" || name === "community" || name === "tournament" || name === "tierlist";
+  if (workspace) workspace.hidden = isFullPageView;
   if (libraryView) libraryView.hidden = name !== "library";
+  if (communityView) communityView.hidden = name !== "community";
+  if (tournamentView) tournamentView.hidden = name !== "tournament";
+  if (tierlistView) tierlistView.hidden = name !== "tierlist";
 
   if (name === "library") {
     renderLibrary();
+  } else if (name === "community") {
+    renderCommunity();
+  } else if (name === "tournament") {
+    initTournamentView();
+  } else if (name === "tierlist") {
+    initTierListView();
   } else if (name === "arena") {
     // Resize canvas to fill the arena pane since editor collapses
     requestAnimationFrame(resizeArenaCanvasForCurrentView);
@@ -5571,6 +6362,14 @@ async function refreshCurrentUser() {
     currentUser = null;
   }
   updateAuthUi();
+  if (currentUser) {
+    // Keep share state on library cards accurate after sign-in / page reload.
+    refreshVisibilityCache().then(() => {
+      if (currentView === "library") renderLibrary();
+    }).catch(() => {});
+    // Refresh daily leaderboard so "(you)" row highlight works after auth.
+    if (typeof dcRefreshLeaderboard === "function") dcRefreshLeaderboard();
+  }
 }
 
 async function syncRemoteBotsIntoLibrary() {
@@ -5580,6 +6379,7 @@ async function syncRemoteBotsIntoLibrary() {
   let imported = 0;
   for (const rb of bots ?? []) {
     if (!rb?.id || !rb?.name) continue;
+    if (rb?.visibility) setVisibilityCacheEntry(rb.id, rb.visibility);
     const mappedLocalId = map[rb.id];
     const mappedLocal = mappedLocalId ? BotLibrary.getById(mappedLocalId) : null;
     const versions = await ApiClient.listRemoteBotVersions(rb.id);
@@ -5610,6 +6410,7 @@ btnAuthLogout?.addEventListener("click", async () => {
   await ApiClient.logout();
   currentUser = null;
   updateAuthUi();
+  if (currentView === "library") renderLibrary();
   toast("Signed out.", "info");
 });
 btnSyncCloud?.addEventListener("click", async () => {
@@ -5691,6 +6492,7 @@ btnSaveLibrary?.addEventListener("click", async () => {
     updateEditorFileName();
     toast(`Saved "${r.bot.name}" to library.`, "success");
     logToConsole(`Library: saved "${r.bot.name}" (${r.bot.class}).`, "success");
+    Achievements.fact("bot_saved", { count: BotLibrary.getAll().length });
     if (currentUser) {
       try {
         const created = await ApiClient.createRemoteBot({
@@ -5753,6 +6555,246 @@ function classIconLetter(cls) {
   return { brawler: "B", ranger: "R", tank: "T", support: "S" }[cls] ?? "?";
 }
 
+// ---------------------------------------------------------------------------
+// Community / sharing — visibility cache keyed by remote bot id
+// ---------------------------------------------------------------------------
+
+const VISIBILITY_CACHE_KEY = "arenascript.remote.visibility";
+
+function getVisibilityCache() {
+  try {
+    const raw = localStorage.getItem(VISIBILITY_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function setVisibilityCacheEntry(remoteId, visibility) {
+  if (!remoteId) return;
+  const cache = getVisibilityCache();
+  if (visibility) cache[remoteId] = visibility;
+  else delete cache[remoteId];
+  localStorage.setItem(VISIBILITY_CACHE_KEY, JSON.stringify(cache));
+}
+
+/** Find the remoteId for a local bot id, scanning the remote→local map. */
+function findRemoteIdForLocal(localId) {
+  if (!localId) return null;
+  const map = getRemoteBotMap();
+  for (const [remoteId, mappedLocal] of Object.entries(map)) {
+    if (mappedLocal === localId) return remoteId;
+  }
+  return null;
+}
+
+/** Pull the latest visibility for every remote bot the user owns into the cache. */
+async function refreshVisibilityCache() {
+  if (!currentUser) return;
+  try {
+    const { bots } = await ApiClient.listRemoteBots();
+    for (const rb of bots ?? []) {
+      if (rb?.id && rb?.visibility) setVisibilityCacheEntry(rb.id, rb.visibility);
+    }
+  } catch {
+    // Non-fatal — the UI just won't show share state until next sync.
+  }
+}
+
+async function toggleBotShared(localBot) {
+  if (!currentUser) {
+    toast("Sign in to share your bot.", "warn");
+    return;
+  }
+  let remoteId = findRemoteIdForLocal(localBot.id);
+
+  // First-time share: upload to cloud, then set public.
+  if (!remoteId) {
+    try {
+      const created = await ApiClient.createRemoteBot({
+        name: localBot.name,
+        sourceCode: localBot.source,
+        visibility: "public",
+      });
+      remoteId = created?.bot?.id;
+      if (remoteId) {
+        rememberRemoteMapping(remoteId, localBot.id);
+        setVisibilityCacheEntry(remoteId, "public");
+        toast(`"${localBot.name}" shared to community.`, "success");
+        renderLibrary();
+        Achievements.fact("bot_shared");
+      } else {
+        toast("Couldn't share bot (no id returned).", "error");
+      }
+    } catch (e) {
+      toast(`Share failed: ${e.message ?? String(e)}`, "error");
+    }
+    return;
+  }
+
+  const cache = getVisibilityCache();
+  const current = cache[remoteId] || "private";
+  const next = current === "public" ? "private" : "public";
+  try {
+    await ApiClient.setBotVisibility({ id: remoteId, visibility: next });
+    setVisibilityCacheEntry(remoteId, next);
+    toast(next === "public"
+      ? `"${localBot.name}" is now public.`
+      : `"${localBot.name}" is now private.`, "success");
+    renderLibrary();
+    if (next === "public") Achievements.fact("bot_shared");
+  } catch (e) {
+    toast(`Couldn't change visibility: ${e.message ?? String(e)}`, "error");
+  }
+}
+
+function botSharedState(localBot) {
+  const remoteId = findRemoteIdForLocal(localBot.id);
+  if (!remoteId) return { remoteId: null, visibility: null };
+  const cache = getVisibilityCache();
+  return { remoteId, visibility: cache[remoteId] || null };
+}
+
+// ---------------------------------------------------------------------------
+// Community view
+// ---------------------------------------------------------------------------
+
+const communityGridEl = document.getElementById("community-grid");
+const communityEmptyEl = document.getElementById("community-empty");
+const communityCountEl = document.getElementById("community-count");
+const communityBannerEl = document.getElementById("community-banner");
+const communitySearchEl = document.getElementById("community-search");
+const communityClassEl = document.getElementById("community-class");
+const communitySortEl = document.getElementById("community-sort");
+
+let _communityCache = null;       // Last server response
+let _communityRequest = 0;        // Race-prevention token
+
+/** Extract the bot class from a stored source string (regex-based). */
+function classFromSource(src) {
+  const m = String(src ?? "").match(/\bclass\s*:\s*"([^"]+)"/);
+  if (!m) return "brawler";
+  const c = m[1].trim().toLowerCase();
+  return ["brawler", "ranger", "tank", "support"].includes(c) ? c : "brawler";
+}
+
+function applyCommunityClientFilter(bots) {
+  const cls = communityClassEl?.value || "";
+  if (!cls) return bots;
+  return bots.filter((b) => classFromSource(b.source_code) === cls);
+}
+
+async function renderCommunity() {
+  if (!communityGridEl) return;
+
+  const reqId = ++_communityRequest;
+  communityGridEl.innerHTML = `<div class="community-loading">Loading community bots…</div>`;
+  if (communityEmptyEl) communityEmptyEl.hidden = true;
+  if (communityCountEl) communityCountEl.textContent = "—";
+  if (communityBannerEl) {
+    communityBannerEl.hidden = true;
+    communityBannerEl.textContent = "";
+  }
+
+  let payload;
+  try {
+    payload = await ApiClient.listCommunityBots({
+      q: communitySearchEl?.value?.trim() || "",
+      sort: communitySortEl?.value || "recent",
+      limit: 100,
+    });
+  } catch (e) {
+    if (reqId !== _communityRequest) return;
+    communityGridEl.innerHTML = "";
+    if (communityBannerEl) {
+      communityBannerEl.hidden = false;
+      communityBannerEl.textContent = `Couldn't reach the community server (${e.message ?? "network error"}). Make sure the backend is configured.`;
+    }
+    return;
+  }
+  if (reqId !== _communityRequest) return;
+
+  _communityCache = payload;
+  const filtered = applyCommunityClientFilter(payload.bots ?? []);
+
+  if (communityCountEl) {
+    const total = payload.total ?? filtered.length;
+    communityCountEl.textContent = `${filtered.length}${filtered.length !== total ? ` of ${total}` : ""} bot${total === 1 ? "" : "s"}`;
+  }
+
+  if (filtered.length === 0) {
+    communityGridEl.innerHTML = "";
+    if (communityEmptyEl) communityEmptyEl.hidden = false;
+    return;
+  }
+
+  communityGridEl.innerHTML = "";
+  for (const bot of filtered) {
+    const cls = classFromSource(bot.source_code);
+    const card = document.createElement("div");
+    card.className = "bot-card community-card";
+    card.dataset.id = bot.id;
+    card.innerHTML = `
+      <div class="bot-card-header">
+        <div class="bot-class-icon ${cls}">${classIconLetter(cls)}</div>
+        <div class="bot-card-title">
+          <div class="bot-card-name" title="${escapeHtml(bot.name)}">${escapeHtml(bot.name)}</div>
+          <div class="bot-card-meta">${cls} • by @${escapeHtml(bot.author_username || "anon")}</div>
+        </div>
+        <span class="community-pill">PUBLIC</span>
+      </div>
+      <div class="community-stats">${renderStatBars(cls)}</div>
+      <div class="bot-card-source"><code>${escapeHtml(String(bot.source_code || "").split("\n").slice(0, 5).join("\n"))}</code></div>
+      <div class="bot-card-footer">
+        <span class="bot-card-date">${formatDate(bot.updated_at || bot.created_at)}</span>
+        <div class="bot-card-actions">
+          <button class="bc-btn bc-btn-primary" data-act="install" title="Save a copy to your library">Install</button>
+          <button class="bc-btn" data-act="preview" title="Open in editor (read-only paste)">View</button>
+        </div>
+      </div>`;
+
+    card.querySelector('[data-act="install"]').addEventListener("click", () => {
+      const src = bot.source_code;
+      if (!src) {
+        toast("No source code on this entry.", "error");
+        return;
+      }
+      const overrideName = `${bot.name} (by @${bot.author_username || "anon"})`;
+      const r = BotLibrary.addBot(src, { overrideName });
+      if (r.ok) {
+        toast(`Installed "${bot.name}" to your library.`, "success");
+        Achievements.fact("bot_installed");
+      } else {
+        toast(`Couldn't install: ${(r.errors || []).join(", ") || "unknown error"}`, "error");
+      }
+    });
+    card.querySelector('[data-act="preview"]').addEventListener("click", () => {
+      if (editorEl && bot.source_code) {
+        editorEl.value = bot.source_code;
+        currentEditorBotName = bot.name || "Community Bot";
+        compiledPlayer = null;
+        if (btnRun) btnRun.disabled = true;
+        updateHighlighting?.();
+        updateLineNumbers?.();
+        setView("builder");
+        toast(`Previewing "${bot.name}" in editor.`, "info");
+      }
+    });
+
+    communityGridEl.appendChild(card);
+  }
+}
+
+communitySearchEl?.addEventListener("input", () => {
+  clearTimeout(communitySearchEl._t);
+  communitySearchEl._t = setTimeout(renderCommunity, 250);
+});
+communitySortEl?.addEventListener("change", renderCommunity);
+communityClassEl?.addEventListener("change", renderCommunity);
+document.getElementById("btn-community-refresh")?.addEventListener("click", renderCommunity);
+
 function renderLibrary() {
   if (!libraryGridEl) return;
   const all = BotLibrary.getAll();
@@ -5777,13 +6819,27 @@ function renderLibrary() {
     const card = document.createElement("div");
     card.className = "bot-card";
     card.dataset.id = bot.id;
+    const shared = botSharedState(bot);
+    const sharedPill = shared.visibility === "public"
+      ? `<span class="community-pill" title="Visible to all players in the Community list">PUBLIC</span>`
+      : "";
+    const shareLabel = shared.visibility === "public" ? "Unshare" : "Share";
+    const shareTitle = !currentUser
+      ? "Sign in to share bots with the community"
+      : shared.visibility === "public"
+      ? "Hide this bot from the community list"
+      : "Publish this bot to the community list";
+    const avatarHtml = bot.avatar
+      ? `<img class="bot-avatar-img-large" src="${escapeHtml(bot.avatar)}" alt="">`
+      : classIconLetter(bot.class);
     card.innerHTML = `
       <div class="bot-card-header">
-        <div class="bot-class-icon ${bot.class}">${classIconLetter(bot.class)}</div>
+        <button class="bot-class-icon ${bot.class} bot-avatar-btn" data-act="avatar" title="Click to set an avatar">${avatarHtml}</button>
         <div class="bot-card-title">
           <div class="bot-card-name" title="${escapeHtml(bot.name)}">${escapeHtml(bot.name)}</div>
           <div class="bot-card-meta">${bot.class}${bot.author ? " • " + escapeHtml(bot.author) : ""}</div>
         </div>
+        ${sharedPill}
       </div>
       <div class="bot-card-source"><code>${escapeHtml(bot.source.split("\n").slice(0, 5).join("\n"))}</code></div>
       <div class="bot-card-footer">
@@ -5792,6 +6848,7 @@ function renderLibrary() {
           <button class="bc-btn" data-act="edit"   title="Load in Builder">Edit</button>
           <button class="bc-btn" data-act="battle" title="Use as your bot in Arena">Battle</button>
           <button class="bc-btn" data-act="opponent" title="Set as opponent">Opp</button>
+          <button class="bc-btn bc-btn-share" data-act="share" title="${escapeHtml(shareTitle)}" ${currentUser ? "" : "disabled"}>${shareLabel}</button>
           <button class="bc-btn" data-act="export" title="Download .arena">Export</button>
           <button class="bc-btn bc-btn-danger" data-act="delete" title="Delete">&times;</button>
         </div>
@@ -5815,6 +6872,9 @@ function renderLibrary() {
       setView("arena");
       toast(`"${bot.name}" set as opponent.`, "info");
     });
+    card.querySelector('[data-act="share"]').addEventListener("click", () => {
+      toggleBotShared(bot);
+    });
     card.querySelector('[data-act="export"]').addEventListener("click", () => {
       BotLibrary.exportBot(bot.id);
     });
@@ -5824,9 +6884,48 @@ function renderLibrary() {
         toast(`Deleted "${bot.name}".`, "info");
       }
     });
+    card.querySelector('[data-act="avatar"]').addEventListener("click", () => {
+      pickAvatarForBot(bot);
+    });
 
     libraryGridEl.appendChild(card);
   }
+}
+
+/**
+ * Pop an image file picker for the given library bot, downscale to 64x64,
+ * persist via BotLibrary.setAvatar(), and refresh visible cards.
+ * Right-click / shift-click clears the avatar.
+ */
+function pickAvatarForBot(bot) {
+  if (window.event && (window.event.shiftKey || window.event.altKey)) {
+    if (BotLibrary.setAvatar(bot.id, null)) {
+      toast(`Avatar cleared for "${bot.name}".`, "info");
+      renderLibrary();
+      renderSidebarUserBots();
+    }
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await BotLibrary.resizeImageFileToAvatar(file, { size: 64 });
+      if (!BotLibrary.setAvatar(bot.id, dataUrl)) {
+        toast("Avatar rejected — image too large or invalid.", "error");
+        return;
+      }
+      toast(`Avatar updated for "${bot.name}". Shift-click to clear.`, "success");
+      renderLibrary();
+      renderSidebarUserBots();
+    } catch (e) {
+      toast(`Avatar failed: ${e.message ?? String(e)}`, "error");
+    }
+  });
+  input.click();
 }
 
 function renderSidebarUserBots() {
@@ -5847,7 +6946,7 @@ function renderSidebarUserBots() {
     el.dataset.bot = bot.id;
     el.title = `${bot.name} — ${bot.class}`;
     el.innerHTML = `
-      <div class="bot-class-icon ${bot.class}">${classIconLetter(bot.class)}</div>
+      <div class="bot-class-icon ${bot.class}">${botIconInner(bot.id)}</div>
       <div class="bot-preset-info">
         <span class="bot-preset-name">${escapeHtml(bot.name)}</span>
         <span class="bot-preset-class">${bot.class}</span>
@@ -6174,6 +7273,1233 @@ installCommandPalette(() => {
     },
   });
   return cmds;
+});
+
+// ============================================================================
+// SFX toggle wiring
+// ============================================================================
+
+const btnSfxToggle = document.getElementById("btn-sfx-toggle");
+
+function updateSfxButton() {
+  if (!btnSfxToggle) return;
+  const on = SFX.isEnabled();
+  btnSfxToggle.classList.toggle("sfx-muted", !on);
+  const icon = btnSfxToggle.querySelector(".sfx-icon");
+  if (icon) icon.textContent = on ? "🔊" : "🔇";
+  btnSfxToggle.title = on ? "Mute sound effects" : "Unmute sound effects";
+}
+
+btnSfxToggle?.addEventListener("click", () => {
+  SFX.setEnabled(!SFX.isEnabled());
+  updateSfxButton();
+  if (SFX.isEnabled()) SFX.playClick();
+});
+
+updateSfxButton();
+
+// ============================================================================
+// Daily Challenge
+// ============================================================================
+//
+// Deterministic-per-day opponent + arena + seed. Encourages daily return
+// visits without any backend dependency — the challenge is purely a function
+// of today's date, the best-time leaderboard lives in localStorage.
+
+const DC_STORAGE_KEY = "arenascript.daily.v1";
+const dcEl = document.getElementById("daily-challenge");
+const dcDateEl = document.getElementById("dc-date");
+const dcTitleEl = document.getElementById("dc-title");
+const dcMetaEl = document.getElementById("dc-meta");
+const dcBestEl = document.getElementById("dc-best");
+const dcRunBtn = document.getElementById("btn-dc-run");
+const dcLeaderboardEl = document.getElementById("dc-leaderboard");
+const dcLbListEl = document.getElementById("dc-lb-list");
+const dcLbEmptyEl = document.getElementById("dc-lb-empty");
+const dcLbSigninEl = document.getElementById("dc-lb-signin");
+
+function dcTodayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function dcDayIndex() {
+  // Days since a fixed epoch — used to deterministically pick today's matchup.
+  const d = new Date();
+  const utc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.floor(utc / 86400000);
+}
+
+function dcGetState() {
+  try {
+    const raw = localStorage.getItem(DC_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch { return {}; }
+}
+
+function dcRecordResult(dayKey, tickCount, won) {
+  const state = dcGetState();
+  const entry = state[dayKey] || { attempts: 0, bestTicks: null, won: false };
+  entry.attempts++;
+  if (won && (entry.bestTicks === null || tickCount < entry.bestTicks)) {
+    entry.bestTicks = tickCount;
+    entry.won = true;
+  }
+  state[dayKey] = entry;
+  try { localStorage.setItem(DC_STORAGE_KEY, JSON.stringify(state)); } catch {}
+}
+
+const DC_OPPONENT_POOL = [
+  "kiter", "fortress", "flanker", "sentinel", "hivemind",
+  "phantom", "warden", "overclock", "oracle", "zealot", "predator",
+];
+
+function dcTodayConfig() {
+  const idx = dcDayIndex();
+  const oppKey = DC_OPPONENT_POOL[idx % DC_OPPONENT_POOL.length];
+  const arenaList = ARENA_PRESET_ORDER.filter((a) => a !== "nexus");
+  const arenaId = arenaList[idx % arenaList.length];
+  // Seed is bounded by the engine PRNG range; a day-derived stable seed.
+  const seed = (idx * 2654435761) % 2_147_483_646;
+  return { oppKey, arenaId, seed, dayKey: dcTodayKey() };
+}
+
+function dcFormatTicks(ticks) {
+  if (ticks == null) return "—";
+  const seconds = ticks / 30; // engine runs at 30 ticks/sec
+  return `${seconds.toFixed(1)}s`;
+}
+
+function dcRender() {
+  if (!dcEl) return;
+  const cfg = dcTodayConfig();
+  const opp = getBotEntry(cfg.oppKey);
+  const arena = getArenaPreset(cfg.arenaId);
+  if (!opp || !arena) { dcEl.hidden = true; return; }
+
+  dcEl.hidden = false;
+  if (dcDateEl) {
+    const d = new Date();
+    dcDateEl.textContent = d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  if (dcTitleEl) dcTitleEl.textContent = `Beat ${opp.name}`;
+  if (dcMetaEl) dcMetaEl.textContent = `${arena.name} · 1v1 · fixed seed`;
+
+  const state = dcGetState()[cfg.dayKey];
+  if (dcBestEl) {
+    if (!state || !state.won) {
+      dcBestEl.classList.add("dc-best-none");
+      dcBestEl.textContent = state ? `${state.attempts} attempt${state.attempts === 1 ? "" : "s"}` : "No attempts yet";
+    } else {
+      dcBestEl.classList.remove("dc-best-none");
+      dcBestEl.textContent = `Best: ${dcFormatTicks(state.bestTicks)}`;
+    }
+  }
+}
+
+async function dcRun() {
+  const cfg = dcTodayConfig();
+  // Make sure the editor bot is compiled; if it isn't, run a fresh compile.
+  if (!compiledPlayer && !doCompile()) {
+    toast("Compile your bot first.", "warn");
+    return;
+  }
+  // Set arena + seed in the match controls so a follow-up "Run" reproduces.
+  if (arenaSelect && [...arenaSelect.options].some(o => o.value === cfg.arenaId)) {
+    arenaSelect.value = cfg.arenaId;
+    currentArenaId = cfg.arenaId;
+    updateArenaInfo();
+  }
+  if (matchModeSelect) matchModeSelect.value = "duel_1v1";
+  if (seedInput) seedInput.value = String(cfg.seed);
+  if (opponentSelect) {
+    refreshOpponentSelect();
+    opponentSelect.value = cfg.oppKey;
+  }
+
+  setView("arena");
+  await nextFrame();
+  await doRunMatch();
+
+  // Record the outcome — assumes lastMatchResult is populated after doRunMatch.
+  if (lastMatchResult) {
+    const playerWon = lastMatchResult.winner === 0;
+    const isDraw = lastMatchResult.winner === null;
+    dcRecordResult(cfg.dayKey, lastMatchResult.tickCount, playerWon);
+    dcRender();
+    // doRunMatch already records per-opponent stats; the Daily Challenge
+    // counts as a notable head-to-head, so we don't double-record here.
+    if (playerWon) {
+      toast(`Daily Challenge: WON in ${dcFormatTicks(lastMatchResult.tickCount)}`, "success");
+      Achievements.fact("daily_won", { durationTicks: lastMatchResult.tickCount });
+      // Submit to the cloud leaderboard if signed in. Best-time only — the
+      // backend dedupes per (day, username) and keeps the fastest winner.
+      if (currentUser) {
+        ApiClient.postDailyResult({
+          day: cfg.dayKey,
+          ticks: lastMatchResult.tickCount,
+          won: true,
+        }).then(() => dcRefreshLeaderboard()).catch(() => {});
+      }
+    } else if (!isDraw) {
+      toast(`Daily Challenge: try again — that was attempt #${(dcGetState()[cfg.dayKey]?.attempts) || 1}`, "info");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Daily Challenge cloud leaderboard
+// ---------------------------------------------------------------------------
+
+let _dcLbLoading = false;
+async function dcRefreshLeaderboard() {
+  if (!dcLeaderboardEl || _dcLbLoading) return;
+  _dcLbLoading = true;
+  const cfg = dcTodayConfig();
+  let payload;
+  try {
+    payload = await ApiClient.getDailyLeaderboard({ day: cfg.dayKey });
+  } catch (e) {
+    // Backend unreachable — hide leaderboard quietly (works offline).
+    dcLeaderboardEl.hidden = true;
+    _dcLbLoading = false;
+    return;
+  }
+  _dcLbLoading = false;
+  if (!payload || !Array.isArray(payload.leaders)) {
+    dcLeaderboardEl.hidden = true;
+    return;
+  }
+  dcLeaderboardEl.hidden = false;
+  if (dcLbSigninEl) dcLbSigninEl.hidden = !!currentUser;
+  const leaders = payload.leaders;
+  if (leaders.length === 0) {
+    if (dcLbListEl) dcLbListEl.innerHTML = "";
+    if (dcLbEmptyEl) dcLbEmptyEl.hidden = false;
+    return;
+  }
+  if (dcLbEmptyEl) dcLbEmptyEl.hidden = true;
+  const youName = currentUser?.username || null;
+  const rows = leaders.slice(0, 10).map((row, i) => {
+    const isYou = youName && row.username === youName;
+    const rank = i + 1;
+    const cls = isYou ? "dc-lb-you" : rank === 1 ? "dc-lb-gold" : rank === 2 ? "dc-lb-silver" : rank === 3 ? "dc-lb-bronze" : "";
+    const ticks = Number(row.ticks) || 0;
+    return `
+      <li class="${cls}">
+        <span class="dc-rank">${rank}</span>
+        <span class="dc-name">${escapeHtml(row.username)}${isYou ? " (you)" : ""}</span>
+        <span class="dc-time">${(ticks / 30).toFixed(1)}s</span>
+      </li>`;
+  }).join("");
+  if (dcLbListEl) dcLbListEl.innerHTML = rows;
+}
+
+document.getElementById("btn-dc-lb-refresh")?.addEventListener("click", dcRefreshLeaderboard);
+
+dcRunBtn?.addEventListener("click", dcRun);
+dcRender();
+dcRefreshLeaderboard();
+
+// ============================================================================
+// Achievements wiring
+// ============================================================================
+
+const achievementsModal = document.getElementById("achievements-modal");
+const btnAchievements = document.getElementById("btn-achievements");
+const btnCloseAchievements = document.getElementById("btn-close-achievements");
+const achPillEl = document.getElementById("ach-pill");
+const achGridEl = document.getElementById("ach-grid");
+const achStatUnlocked = document.getElementById("ach-stat-unlocked");
+const achStatWins = document.getElementById("ach-stat-wins");
+const achStatPlayed = document.getElementById("ach-stat-played");
+const achStatStreak = document.getElementById("ach-stat-streak");
+const achUnlockToast = document.getElementById("ach-unlock-toast");
+const achUnlockIcon = document.getElementById("ach-unlock-icon");
+const achUnlockTitle = document.getElementById("ach-unlock-title");
+const achUnlockDesc = document.getElementById("ach-unlock-desc");
+
+function updateAchievementsPill() {
+  if (!achPillEl) return;
+  const s = Achievements.summary();
+  achPillEl.textContent = `${s.unlocked}/${s.total}`;
+  achPillEl.classList.toggle("ach-pill-full", s.unlocked === s.total && s.total > 0);
+}
+
+function renderAchievementsModal() {
+  if (!achGridEl) return;
+  const state = Achievements.getState();
+  achStatUnlocked.textContent = String(Object.keys(state.unlocked).length);
+  achStatWins.textContent = String(state.matchesWon || 0);
+  achStatPlayed.textContent = String(state.matchesPlayed || 0);
+  achStatStreak.textContent = String(state.currentStreak || 0);
+
+  renderRivals();
+
+  achGridEl.innerHTML = "";
+  for (const ach of Achievements.getAchievements()) {
+    const unlocked = !!state.unlocked[ach.id];
+    const prog = Achievements.progressFor(ach.id);
+    const showBar = ach.target && ach.target > 1;
+    const card = document.createElement("div");
+    card.className = `ach-card ${unlocked ? "unlocked" : "locked"}`;
+    card.innerHTML = `
+      <div class="ach-card-icon">${ach.icon}</div>
+      <div class="ach-card-body">
+        <div class="ach-card-title">${escapeHtml(ach.title)}</div>
+        <div class="ach-card-desc">${escapeHtml(ach.desc)}</div>
+        ${showBar ? `
+          <div class="ach-card-progress">
+            <div class="ach-progress-bar"><div class="ach-progress-fill" style="width:${prog.percent}%"></div></div>
+            <div class="ach-progress-text">${prog.current}/${prog.target}</div>
+          </div>` : ""}
+      </div>`;
+    achGridEl.appendChild(card);
+  }
+}
+
+const achRivalsEl = document.getElementById("ach-rivals");
+
+function renderRivals() {
+  if (!achRivalsEl) return;
+  const opponents = MatchStats.listOpponents().slice(0, 8);
+  if (opponents.length === 0) {
+    achRivalsEl.innerHTML = `
+      <div class="ach-rivals-empty">
+        <div class="ach-rivals-empty-icon">⚔️</div>
+        <h3>No rivalries yet</h3>
+        <p>Run a 1v1 match and your record vs each opponent will appear here. Visit the <b>Bot Picker</b> to see your record in-line on every card.</p>
+      </div>`;
+    return;
+  }
+
+  // Per-class breakdown — derived from the stats module's totalsByClass.
+  const cls = MatchStats.totals().totalsByClass || {};
+  const classOrder = ["brawler", "ranger", "tank", "support"];
+  const classMeta = {
+    brawler: { label: "Brawler", icon: "B" },
+    ranger:  { label: "Ranger",  icon: "R" },
+    tank:    { label: "Tank",    icon: "T" },
+    support: { label: "Support", icon: "S" },
+  };
+  const classCards = classOrder.map((c) => {
+    const row = cls[c] || { wins: 0, losses: 0 };
+    const total = (row.wins | 0) + (row.losses | 0);
+    const winPct = total > 0 ? Math.round((row.wins / total) * 100) : 0;
+    const tone = total === 0 ? "rival-empty"
+              : row.wins > row.losses ? "rival-positive"
+              : row.losses > row.wins ? "rival-negative" : "rival-even";
+    const winRateLabel = total > 0 ? `${winPct}%` : "—";
+    return `
+      <div class="class-card ${tone}">
+        <div class="class-card-head">
+          <span class="class-icon ${c}">${classMeta[c].icon}</span>
+          <span class="class-name">${classMeta[c].label}</span>
+        </div>
+        <div class="class-winrate">${winRateLabel}</div>
+        <div class="class-card-bar">
+          <div class="class-bar-fill" style="width:${winPct}%"></div>
+        </div>
+        <div class="class-card-sub">${row.wins | 0}W · ${row.losses | 0}L</div>
+      </div>`;
+  }).join("");
+  const classGrid = `
+    <div class="class-breakdown">
+      <h4 class="class-breakdown-title">Win rate by class</h4>
+      <div class="class-grid">${classCards}</div>
+    </div>`;
+  const rowsHtml = opponents.map((o, i) => {
+    const entry = getBotEntry(o.botKey);
+    if (!entry) return "";
+    const total = o.wins + o.losses + o.draws;
+    const wPct = total > 0 ? (o.wins / total) * 100 : 0;
+    const lPct = total > 0 ? (o.losses / total) * 100 : 0;
+    const dPct = total > 0 ? (o.draws / total) * 100 : 0;
+    const tone = o.wins > o.losses ? "rival-positive"
+              : o.losses > o.wins ? "rival-negative" : "rival-even";
+    return `
+      <div class="rival-row ${tone}">
+        <span class="rival-rank">#${i + 1}</span>
+        <span class="rival-icon ${escapeHtml(entry.class)}">${botIconInner(o.botKey)}</span>
+        <div class="rival-body">
+          <div class="rival-name">${escapeHtml(entry.name)}<span class="rival-cls"> · ${escapeHtml(entry.class)}</span></div>
+          <div class="rival-bar">
+            <div class="rival-bar-w" style="width:${wPct.toFixed(1)}%"></div>
+            <div class="rival-bar-d" style="width:${dPct.toFixed(1)}%"></div>
+            <div class="rival-bar-l" style="width:${lPct.toFixed(1)}%"></div>
+          </div>
+        </div>
+        <div class="rival-record">
+          <div class="rival-record-line">${o.wins}W · ${o.losses}L${o.draws ? ` · ${o.draws}D` : ""}</div>
+          <div class="rival-record-sub">${total} match${total === 1 ? "" : "es"}</div>
+        </div>
+      </div>`;
+  }).join("");
+  achRivalsEl.innerHTML = classGrid + `<h4 class="class-breakdown-title rivals-list-title">Most-played opponents</h4>` + rowsHtml;
+}
+
+// Tab switching for the achievements modal.
+for (const tab of document.querySelectorAll(".ach-tab")) {
+  tab.addEventListener("click", () => {
+    const name = tab.dataset.achTab;
+    for (const t of document.querySelectorAll(".ach-tab")) {
+      const active = t === tab;
+      t.classList.toggle("active", active);
+      t.setAttribute("aria-selected", active ? "true" : "false");
+    }
+    for (const panel of document.querySelectorAll("[data-ach-tab-panel]")) {
+      panel.hidden = panel.dataset.achTabPanel !== name;
+    }
+  });
+}
+
+function openAchievementsModal() {
+  if (!achievementsModal) return;
+  renderAchievementsModal();
+  achievementsModal.hidden = false;
+}
+
+function closeAchievementsModal() {
+  if (achievementsModal) achievementsModal.hidden = true;
+}
+
+let _achToastQueue = [];
+let _achToastShowing = false;
+
+function showAchievementToast(def) {
+  if (!achUnlockToast) return;
+  _achToastQueue.push(def);
+  drainAchToastQueue();
+}
+
+function drainAchToastQueue() {
+  if (_achToastShowing || _achToastQueue.length === 0) return;
+  const def = _achToastQueue.shift();
+  _achToastShowing = true;
+  achUnlockIcon.textContent = def.icon || "🏆";
+  achUnlockTitle.textContent = def.title || "Unlocked";
+  achUnlockDesc.textContent = def.desc || "";
+  achUnlockToast.classList.remove("leaving");
+  achUnlockToast.hidden = false;
+  // Use the SFX victory cue — short fanfare, fits perfectly.
+  SFX.playVictory();
+  setTimeout(() => {
+    achUnlockToast.classList.add("leaving");
+    setTimeout(() => {
+      achUnlockToast.hidden = true;
+      _achToastShowing = false;
+      drainAchToastQueue();
+    }, 400);
+  }, 4200);
+}
+
+document.addEventListener("achievement-unlocked", (e) => {
+  showAchievementToast(e.detail);
+  updateAchievementsPill();
+  if (achievementsModal && !achievementsModal.hidden) renderAchievementsModal();
+});
+
+Achievements.subscribe(() => updateAchievementsPill());
+
+btnAchievements?.addEventListener("click", openAchievementsModal);
+btnCloseAchievements?.addEventListener("click", closeAchievementsModal);
+achievementsModal?.addEventListener("click", (e) => {
+  if (e.target === achievementsModal) closeAchievementsModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && achievementsModal && !achievementsModal.hidden) closeAchievementsModal();
+});
+
+updateAchievementsPill();
+
+/**
+ * Inspect a finished match result + replay and emit a `match_ended` fact.
+ * Used by every code path that finishes a match.
+ */
+function recordMatchAchievements(result) {
+  if (!result) return;
+  const playerWon = result.winner === 0;
+  const ffa = !!result.ffa || (result.metadata && result.metadata.mode === "battle_royale");
+  // Per-team-max — the largest team size, used by Squad Leader.
+  let perTeamMax = 1;
+  const teams = new Map();
+  for (const p of result.replay?.metadata?.participants ?? []) {
+    teams.set(p.teamId, (teams.get(p.teamId) || 0) + 1);
+  }
+  for (const v of teams.values()) perTeamMax = Math.max(perTeamMax, v);
+
+  // Damage taken by the player robot (id "player") — scan replay events.
+  let damageTaken = 0;
+  for (const frame of result.replay?.frames ?? []) {
+    for (const e of frame.events || []) {
+      if (e.type === "damaged" && e.robotId === "player") damageTaken += e.data?.damage ?? 0;
+    }
+  }
+
+  // Player robot class — from the participant matching playerId "player".
+  let robotClass = null;
+  for (const p of result.replay?.metadata?.participants ?? []) {
+    if (p.playerId === "player") {
+      robotClass = p.program?.robotClass || p.robotClass || null;
+      break;
+    }
+  }
+
+  Achievements.fact("match_ended", {
+    won: playerWon,
+    ffa,
+    perTeamMax,
+    durationTicks: result.tickCount ?? 0,
+    damageTaken,
+    robotClass,
+  });
+}
+
+// ============================================================================
+// Tournament — single-elimination bracket runner
+// ============================================================================
+
+const tournEmptyEl = document.getElementById("tourn-empty");
+const tournRosterEl = document.getElementById("tourn-roster");
+const tournRosterGridEl = document.getElementById("tourn-roster-grid");
+const tournRosterCountEl = document.getElementById("tourn-roster-count");
+const tournBracketEl = document.getElementById("tourn-bracket");
+const tournWinnerEl = document.getElementById("tourn-winner");
+const tournStatusEl = document.getElementById("tourn-status");
+const tournSizeEl = document.getElementById("tourn-size");
+const tournArenaEl = document.getElementById("tourn-arena");
+const tournSeedEl = document.getElementById("tourn-seed");
+const btnTournRun = document.getElementById("btn-tourn-run");
+const btnTournClear = document.getElementById("btn-tourn-clear");
+const btnTournPick = document.getElementById("btn-tourn-pick");
+const btnTournAutofill = document.getElementById("btn-tourn-autofill");
+const btnTournNew = document.getElementById("btn-tourn-new");
+
+let _tournRoster = [];           // [{ key, name, class, isYou }]
+let _tournBracket = null;        // { rounds: [{ matches: [{ a, b, winner, result, completed }] }] }
+let _tournRunning = false;
+let _tournViewInited = false;
+
+function initTournamentView() {
+  if (!_tournViewInited) {
+    // Populate the arena <select> the first time the view opens.
+    if (tournArenaEl) {
+      tournArenaEl.innerHTML = ARENA_PRESET_ORDER
+        .map((id) => `<option value="${id}">${escapeHtml(getArenaPreset(id).name)}</option>`)
+        .join("");
+    }
+    _tournViewInited = true;
+  }
+  renderTournamentView();
+}
+
+function tournRosterCapacity() {
+  return parseInt(tournSizeEl?.value || "8", 10);
+}
+
+/**
+ * Canonical single-elimination seed order for n participants. Pairing
+ * consecutive entries gives the standard bracket (1 only meets 2 in the
+ * final, etc.). e.g. n=8 -> [1, 8, 4, 5, 2, 7, 3, 6].
+ */
+function bracketSeedOrder(n) {
+  if (n === 1) return [1];
+  const half = bracketSeedOrder(n / 2);
+  const out = [];
+  for (const s of half) out.push(s, n + 1 - s);
+  return out;
+}
+
+function tournUpdateRunBtn() {
+  const cap = tournRosterCapacity();
+  const enough = _tournRoster.length === cap;
+  if (btnTournRun) {
+    btnTournRun.disabled = !enough || _tournRunning;
+    btnTournRun.textContent = enough ? "Run Tournament" : `Need ${cap - _tournRoster.length} more`;
+  }
+}
+
+function renderTournamentView() {
+  if (!tournRosterGridEl) return;
+  const empty = _tournRoster.length === 0;
+  if (tournEmptyEl) tournEmptyEl.hidden = !empty || !!_tournBracket;
+  if (tournRosterEl) tournRosterEl.hidden = empty;
+  if (tournRosterCountEl) tournRosterCountEl.textContent = `${_tournRoster.length}/${tournRosterCapacity()}`;
+
+  tournRosterGridEl.innerHTML = "";
+  _tournRoster.forEach((p, i) => {
+    const card = document.createElement("div");
+    card.className = "tourn-roster-card";
+    card.innerHTML = `
+      <span class="seed">#${i + 1}</span>
+      <span class="icon ${escapeHtml(p.class)}">${botIconInner(p.key)}</span>
+      <span class="name">${escapeHtml(p.name)}</span>
+      ${p.isYou ? `<span class="you">YOU</span>` : ""}`;
+    tournRosterGridEl.appendChild(card);
+  });
+  tournUpdateRunBtn();
+  renderBracket();
+}
+
+function tournAddParticipant(key) {
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length >= cap) return;
+  const entry = getBotEntry(key);
+  if (!entry) return;
+  _tournRoster.push({
+    key,
+    name: entry.isEditor ? "Your Bot" : entry.name,
+    class: entry.class,
+    isYou: !!entry.isEditor,
+  });
+  renderTournamentView();
+}
+
+function tournClear() {
+  _tournRoster = [];
+  _tournBracket = null;
+  if (tournWinnerEl) tournWinnerEl.hidden = true;
+  if (tournStatusEl) tournStatusEl.textContent = "Idle";
+  renderTournamentView();
+}
+
+function tournAutofill() {
+  const cap = tournRosterCapacity();
+  _tournRoster = [];
+  // Always seed the player's editor bot at #1.
+  _tournRoster.push({
+    key: "__editor__",
+    name: "Your Bot",
+    class: compiledPlayer?.program?.robotClass || "brawler",
+    isYou: true,
+  });
+  // Then varied presets from the pool.
+  let i = 0;
+  while (_tournRoster.length < cap && i < AUTOFILL_POOL.length * 2) {
+    const key = AUTOFILL_POOL[i % AUTOFILL_POOL.length];
+    if (!_tournRoster.some((p) => p.key === key)) {
+      const entry = getBotEntry(key);
+      if (entry) {
+        _tournRoster.push({ key, name: entry.name, class: entry.class, isYou: false });
+      }
+    }
+    i++;
+  }
+  renderTournamentView();
+}
+
+function tournPickParticipant() {
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length >= cap) {
+    toast("Roster is full. Clear or remove a bot first.", "warn");
+    return;
+  }
+  openBotPicker({
+    title: `Pick participant #${_tournRoster.length + 1}`,
+    includeEditor: !_tournRoster.some((p) => p.isYou),
+    onPick: (key) => {
+      tournAddParticipant(key);
+      // Keep picking until the bracket is full.
+      if (_tournRoster.length < cap) setTimeout(tournPickParticipant, 80);
+    },
+  });
+}
+
+function renderBracket() {
+  if (!tournBracketEl) return;
+  if (!_tournBracket) {
+    tournBracketEl.hidden = true;
+    tournBracketEl.innerHTML = "";
+    return;
+  }
+  tournBracketEl.hidden = false;
+
+  const rounds = _tournBracket.rounds;
+  // Use the planned total based on bracket size so labels stay correct even
+  // before later rounds have been generated.
+  const totalRounds = Math.log2(rounds[0].matches.length * 2);
+  const labelFor = (rIdx) => {
+    const remaining = Math.pow(2, totalRounds - rIdx);
+    if (remaining === 2) return "Final";
+    if (remaining === 4) return "Semifinal";
+    if (remaining === 8) return "Quarterfinal";
+    return `Round of ${remaining}`;
+  };
+
+  tournBracketEl.innerHTML = "";
+  rounds.forEach((round, rIdx) => {
+    const col = document.createElement("div");
+    col.className = "tourn-round";
+    col.innerHTML = `<div class="tourn-round-label">${labelFor(rIdx)}</div>`;
+    round.matches.forEach((m, mIdx) => {
+      const matchEl = document.createElement("div");
+      matchEl.className = `tourn-match ${m.running ? "tm-running" : ""} ${m.completed ? "tm-complete" : ""}`;
+      matchEl.dataset.r = String(rIdx);
+      matchEl.dataset.m = String(mIdx);
+      const slot = (p, isWinner, isLoser) => {
+        if (!p) return `<div class="tm-slot tm-tbd"><span class="tm-seed">—</span><span class="tm-name" style="color:var(--text-muted);">TBD</span></div>`;
+        const cls = isWinner ? "tm-winner" : isLoser ? "tm-loser" : "";
+        return `
+          <div class="tm-slot ${cls}">
+            <span class="tm-seed">#${p.seed}</span>
+            <span class="tm-icon ${escapeHtml(p.class)}">${botIconInner(p.key)}</span>
+            <span class="tm-name">${escapeHtml(p.name)}${p.isYou ? `<span class="you-tag">YOU</span>` : ""}</span>
+          </div>`;
+      };
+      const winnerSeat = m.winnerSeat; // "a" | "b" | null
+      matchEl.innerHTML = `
+        ${slot(m.a, winnerSeat === "a", winnerSeat === "b" && m.completed)}
+        ${slot(m.b, winnerSeat === "b", winnerSeat === "a" && m.completed)}
+        <div class="tm-meta">
+          <span>${m.running ? "Running…" : m.completed ? `${m.tickCount} ticks` : "Awaiting"}</span>
+          ${m.completed && m.result ? `<button class="tm-watch" data-r="${rIdx}" data-m="${mIdx}">Watch replay</button>` : ""}
+        </div>`;
+      col.appendChild(matchEl);
+    });
+    tournBracketEl.appendChild(col);
+  });
+}
+
+tournBracketEl?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".tm-watch");
+  if (!btn) return;
+  const r = parseInt(btn.dataset.r, 10);
+  const m = parseInt(btn.dataset.m, 10);
+  const match = _tournBracket?.rounds?.[r]?.matches?.[m];
+  if (!match?.result) return;
+  // Reuse the existing arena flow: load the replay and switch to the arena view.
+  lastMatchResult = match.result;
+  setView("arena");
+  startReplay(match.result, null);
+});
+
+/** Compile a roster entry into a {program, constants, playerId} participant. */
+function tournBuildParticipant(p, teamId) {
+  const entry = getBotEntry(p.key);
+  if (!entry) throw new Error(`Unknown bot ${p.key}`);
+  const r = compile(entry.source);
+  if (!r.success) throw new Error(`${entry.name} failed to compile`);
+  return {
+    program: r.program,
+    constants: r.constants,
+    playerId: p.isYou ? "player" : p.name,
+    teamId,
+  };
+}
+
+async function runTournament() {
+  if (_tournRunning) return;
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length !== cap) { toast(`Need ${cap} participants.`, "warn"); return; }
+
+  _tournRunning = true;
+  if (btnTournRun) btnTournRun.disabled = true;
+  if (tournWinnerEl) tournWinnerEl.hidden = true;
+  if (tournStatusEl) tournStatusEl.textContent = "Seeding bracket…";
+
+  // Validate & compile every entry up front so we fail fast.
+  const compiled = [];
+  for (let i = 0; i < _tournRoster.length; i++) {
+    const p = _tournRoster[i];
+    const entry = getBotEntry(p.key);
+    if (!entry) {
+      toast(`Unknown bot at seed #${i + 1}`, "error");
+      _tournRunning = false;
+      tournUpdateRunBtn();
+      return;
+    }
+    const r = compile(entry.source);
+    if (!r.success) {
+      toast(`${entry.name} failed to compile: ${r.errors?.[0] ?? "unknown"}`, "error");
+      _tournRunning = false;
+      tournUpdateRunBtn();
+      return;
+    }
+    compiled.push({ ...p, seed: i + 1, program: r.program, constants: r.constants });
+  }
+
+  // Build the bracket structure using canonical single-elim seeding so the
+  // top seeds can only meet in the final if both win out. For an 8-bracket
+  // the round-1 order is [1, 8, 4, 5, 2, 7, 3, 6].
+  const order = bracketSeedOrder(compiled.length);
+  const roundMatches = [];
+  for (let i = 0; i < order.length; i += 2) {
+    roundMatches.push({
+      a: compiled[order[i] - 1],
+      b: compiled[order[i + 1] - 1],
+      winner: null,
+      winnerSeat: null,
+      completed: false,
+      running: false,
+    });
+  }
+  _tournBracket = { rounds: [{ matches: roundMatches }] };
+  renderTournamentView();
+  if (tournEmptyEl) tournEmptyEl.hidden = true;
+
+  const arenaId = tournArenaEl?.value || DEFAULT_ARENA_ID;
+  const seedBase = parseInt(tournSeedEl?.value, 10);
+  const useSeed = !Number.isNaN(seedBase) && seedBase >= 0 ? seedBase : Math.floor(Math.random() * 2147483646);
+
+  let roundIdx = 0;
+  let totalRounds = Math.log2(compiled.length);
+
+  while (roundIdx < totalRounds) {
+    const round = _tournBracket.rounds[roundIdx];
+    if (tournStatusEl) tournStatusEl.textContent = `Round ${roundIdx + 1} of ${totalRounds}`;
+
+    // Run each match in the round sequentially with UI yields so the bracket
+    // animates rather than freezing the tab for the whole tournament.
+    for (let mIdx = 0; mIdx < round.matches.length; mIdx++) {
+      const match = round.matches[mIdx];
+      match.running = true;
+      renderTournamentView();
+      await nextFrame();
+      // Tiny delay so the "running" pulse is visible even on fast matches.
+      await new Promise((r) => setTimeout(r, 280));
+
+      const setup = {
+        config: {
+          mode: "duel_1v1",
+          arenaWidth: ARENA_WIDTH,
+          arenaHeight: ARENA_HEIGHT,
+          maxTicks: 3000,
+          tickRate: 30,
+          // Mix in round/match index so every match gets a unique seed.
+          seed: (useSeed + roundIdx * 977 + mIdx * 31) % 2147483646,
+          arenaId,
+        },
+        participants: [
+          { program: match.a.program, constants: match.a.constants, playerId: match.a.name + " (a)", teamId: 0 },
+          { program: match.b.program, constants: match.b.constants, playerId: match.b.name + " (b)", teamId: 1 },
+        ],
+      };
+
+      let result;
+      try {
+        result = runMatch(setup);
+      } catch (e) {
+        toast(`Match crashed: ${e.message}`, "error");
+        match.running = false;
+        renderTournamentView();
+        continue;
+      }
+
+      match.running = false;
+      match.completed = true;
+      match.tickCount = result.tickCount;
+      match.result = result;
+      // Single elim: ties go to the higher seed (lower seed number).
+      let winnerSeat;
+      if (result.winner === 0) winnerSeat = "a";
+      else if (result.winner === 1) winnerSeat = "b";
+      else winnerSeat = match.a.seed < match.b.seed ? "a" : "b";
+      match.winnerSeat = winnerSeat;
+      match.winner = winnerSeat === "a" ? match.a : match.b;
+      renderTournamentView();
+      SFX.playHit();
+    }
+
+    // Build next round from this round's winners.
+    if (round.matches.length > 1 || roundIdx + 1 < totalRounds) {
+      const winners = round.matches.map((m) => m.winner);
+      const nextMatches = [];
+      for (let i = 0; i < winners.length; i += 2) {
+        nextMatches.push({
+          a: winners[i] || null,
+          b: winners[i + 1] || null,
+          winner: null,
+          winnerSeat: null,
+          completed: false,
+          running: false,
+        });
+      }
+      _tournBracket.rounds.push({ matches: nextMatches });
+      renderTournamentView();
+      await nextFrame();
+    }
+
+    roundIdx++;
+  }
+
+  // Crown the champion.
+  const champion = _tournBracket.rounds[_tournBracket.rounds.length - 1].matches[0].winner;
+  if (tournStatusEl) tournStatusEl.textContent = `Champion: ${champion.name}`;
+  if (tournWinnerEl) {
+    tournWinnerEl.hidden = false;
+    document.getElementById("tw-name").textContent = champion.name + (champion.isYou ? "  (you!)" : "");
+    const totalMatches = _tournBracket.rounds.reduce((s, r) => s + r.matches.length, 0);
+    document.getElementById("tw-stats").textContent =
+      `${compiled.length}-bot single elimination · ${totalRounds} rounds · ${totalMatches} matches`;
+  }
+  SFX.playVictory();
+
+  // Achievement: winning a tournament as the player counts as a squad win
+  // (it's a multi-bot competition you led).
+  if (champion.isYou) {
+    Achievements.fact("match_ended", {
+      won: true,
+      perTeamMax: compiled.length,   // counts as the "Squad Leader" trigger
+      durationTicks: 0,               // tournament isn't a single match — skip speedrun
+      damageTaken: 1,                 // skip Untouchable for tournament
+      robotClass: compiledPlayer?.program?.robotClass || null,
+    });
+    Achievements.fact("tournament_won", {
+      seed: champion.seed,
+      bracketSize: compiled.length,
+    });
+  }
+
+  _tournRunning = false;
+  tournUpdateRunBtn();
+}
+
+btnTournRun?.addEventListener("click", runTournament);
+btnTournClear?.addEventListener("click", tournClear);
+btnTournPick?.addEventListener("click", tournPickParticipant);
+btnTournAutofill?.addEventListener("click", tournAutofill);
+btnTournNew?.addEventListener("click", () => {
+  _tournBracket = null;
+  if (tournWinnerEl) tournWinnerEl.hidden = true;
+  renderTournamentView();
+});
+tournSizeEl?.addEventListener("change", () => {
+  // Trim or signal underfill when bracket size shrinks/grows.
+  const cap = tournRosterCapacity();
+  if (_tournRoster.length > cap) _tournRoster = _tournRoster.slice(0, cap);
+  renderTournamentView();
+});
+
+// ============================================================================
+// Tier List — preset vs preset gauntlet, ranked by win rate
+// ============================================================================
+//
+// Runs every preset against every other preset across N seeds, computes a
+// global win rate per preset, then buckets the results into S / A / B / C / D
+// tiers. Caches the last result in localStorage so the page doesn't have to
+// recompute on every visit.
+
+const TIER_CACHE_KEY = "arenascript.tierlist.v1";
+const TIER_PRESETS = [
+  "bruiser", "kiter", "fortress", "healer", "flanker", "sentinel",
+  "hivemind", "phantom", "warden", "overclock", "oracle", "zealot", "predator",
+];
+
+const tierBoardEl = document.getElementById("tier-board");
+const tierEmptyEl = document.getElementById("tier-empty");
+const tierProgressEl = document.getElementById("tier-progress");
+const tierProgressFill = document.getElementById("tier-progress-fill");
+const tierProgressText = document.getElementById("tier-progress-text");
+const tierStatusEl = document.getElementById("tier-status");
+const tierSeedsEl = document.getElementById("tier-seeds");
+const btnTierRun = document.getElementById("btn-tier-run");
+const btnTierClear = document.getElementById("btn-tier-clear");
+
+let _tierRunning = false;
+
+function tierReadCache() {
+  try {
+    const raw = localStorage.getItem(TIER_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function tierWriteCache(data) {
+  try { localStorage.setItem(TIER_CACHE_KEY, JSON.stringify(data)); } catch {}
+}
+
+function initTierListView() {
+  const cached = tierReadCache();
+  if (cached) {
+    tierRenderBoard(cached.results, cached.seeds, cached.ts);
+  } else {
+    if (tierBoardEl) tierBoardEl.hidden = true;
+    if (tierEmptyEl) tierEmptyEl.hidden = false;
+    if (tierStatusEl) tierStatusEl.textContent = "Idle";
+  }
+}
+
+function tierBucketize(percent) {
+  if (percent >= 70) return "S";
+  if (percent >= 55) return "A";
+  if (percent >= 45) return "B";
+  if (percent >= 30) return "C";
+  return "D";
+}
+
+function tierRenderBoard(results, seeds, computedAt) {
+  if (!tierBoardEl) return;
+  if (tierEmptyEl) tierEmptyEl.hidden = true;
+  if (tierProgressEl) tierProgressEl.hidden = true;
+  tierBoardEl.hidden = false;
+
+  // Group by tier label.
+  const tiers = { S: [], A: [], B: [], C: [], D: [] };
+  for (const r of results) tiers[tierBucketize(r.percent)].push(r);
+  for (const k of Object.keys(tiers)) tiers[k].sort((a, b) => b.percent - a.percent);
+
+  const tierOrder = ["S", "A", "B", "C", "D"];
+  const html = tierOrder.map((label) => {
+    const list = tiers[label];
+    const cards = list.length === 0
+      ? `<span class="tier-empty-tier">no entries</span>`
+      : list.map((r) => {
+          const entry = getBotEntry(r.key);
+          if (!entry) return "";
+          const cls = escapeHtml(entry.class);
+          return `
+            <div class="tier-card">
+              <span class="tier-card-icon ${cls}">${botIconInner(r.key)}</span>
+              <span class="tier-card-name">${escapeHtml(entry.name)}</span>
+              <span class="tier-card-pct">${Math.round(r.percent)}%</span>
+            </div>`;
+        }).join("");
+    return `
+      <div class="tier-row tier-row-${label.toLowerCase()}">
+        <div class="tier-label">${label}</div>
+        <div class="tier-cards">${cards}</div>
+      </div>`;
+  }).join("");
+  tierBoardEl.innerHTML = html;
+
+  if (tierStatusEl) {
+    const ago = computedAt ? `· ${formatDate(computedAt)}` : "";
+    tierStatusEl.textContent = `${seeds} seed${seeds > 1 ? "s" : ""}/matchup ${ago}`;
+  }
+}
+
+async function runTierList() {
+  if (_tierRunning) return;
+  _tierRunning = true;
+  if (btnTierRun) btnTierRun.disabled = true;
+  if (tierEmptyEl) tierEmptyEl.hidden = true;
+  if (tierBoardEl) tierBoardEl.hidden = true;
+  if (tierProgressEl) tierProgressEl.hidden = false;
+  if (tierStatusEl) tierStatusEl.textContent = "Running…";
+
+  const seedsPer = Math.max(1, parseInt(tierSeedsEl?.value || "3", 10));
+
+  // Compile each preset once.
+  const compiled = new Map();
+  for (const key of TIER_PRESETS) {
+    const entry = getBotEntry(key);
+    if (!entry) continue;
+    try {
+      const r = compile(entry.source);
+      if (r.success) compiled.set(key, r);
+    } catch { /* skip */ }
+  }
+  const keys = [...compiled.keys()];
+
+  // Build the matchup queue (a < b only — wins/losses split symmetrically).
+  const matchups = [];
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      for (let s = 0; s < seedsPer; s++) {
+        matchups.push({ a: keys[i], b: keys[j], seed: (i * 131 + j * 37 + s * 7919) % 2147483646 });
+      }
+    }
+  }
+
+  const records = new Map(keys.map((k) => [k, { wins: 0, losses: 0, draws: 0 }]));
+  let done = 0;
+
+  for (const m of matchups) {
+    const ca = compiled.get(m.a);
+    const cb = compiled.get(m.b);
+    const setup = {
+      config: {
+        mode: "duel_1v1",
+        arenaWidth: ARENA_WIDTH, arenaHeight: ARENA_HEIGHT,
+        maxTicks: 1500, tickRate: 30,
+        seed: m.seed,
+        arenaId: DEFAULT_ARENA_ID,
+      },
+      participants: [
+        { program: ca.program, constants: ca.constants, playerId: m.a, teamId: 0 },
+        { program: cb.program, constants: cb.constants, playerId: m.b, teamId: 1 },
+      ],
+    };
+    try {
+      const result = runMatch(setup);
+      if (result.winner === 0) { records.get(m.a).wins++; records.get(m.b).losses++; }
+      else if (result.winner === 1) { records.get(m.b).wins++; records.get(m.a).losses++; }
+      else { records.get(m.a).draws++; records.get(m.b).draws++; }
+    } catch { /* skip */ }
+
+    done++;
+    if (tierProgressFill) tierProgressFill.style.width = `${(done / matchups.length) * 100}%`;
+    if (tierProgressText) {
+      const entryA = getBotEntry(m.a)?.name || m.a;
+      const entryB = getBotEntry(m.b)?.name || m.b;
+      tierProgressText.textContent = `${done}/${matchups.length} · ${entryA} vs ${entryB}`;
+    }
+    // Yield to keep the UI responsive — every 4 matchups.
+    if (done % 4 === 0) await nextFrame();
+  }
+
+  const results = keys.map((k) => {
+    const r = records.get(k);
+    const total = r.wins + r.losses + r.draws;
+    const percent = total > 0 ? (r.wins / total) * 100 : 0;
+    return { key: k, wins: r.wins, losses: r.losses, draws: r.draws, percent };
+  });
+  results.sort((a, b) => b.percent - a.percent);
+
+  const cache = { results, seeds: seedsPer, ts: Date.now() };
+  tierWriteCache(cache);
+  tierRenderBoard(results, seedsPer, cache.ts);
+
+  _tierRunning = false;
+  if (btnTierRun) btnTierRun.disabled = false;
+  toast(`Tier list computed (${matchups.length} matches).`, "success");
+}
+
+btnTierRun?.addEventListener("click", runTierList);
+btnTierClear?.addEventListener("click", () => {
+  try { localStorage.removeItem(TIER_CACHE_KEY); } catch {}
+  if (tierBoardEl) tierBoardEl.hidden = true;
+  if (tierEmptyEl) tierEmptyEl.hidden = false;
+  if (tierStatusEl) tierStatusEl.textContent = "Idle";
+  toast("Tier list cache cleared.", "info");
+});
+
+// ============================================================================
+// Share card — download a PNG of the current match result
+// ============================================================================
+
+document.getElementById("btn-share-card")?.addEventListener("click", async () => {
+  if (!lastMatchResult) {
+    toast("Run a match first.", "warn");
+    return;
+  }
+  try {
+    const arena = getArenaPreset(getMatchArenaId());
+    const durationLabel = `${(lastMatchResult.tickCount / 30).toFixed(1)}s`;
+    const winnerSide = lastMatchResult.winner;
+    let winnerLabel = null;
+    let shareText = `${arena?.name || "Arena"} · ${durationLabel}`;
+    if (winnerSide === 0 || winnerSide === 1) {
+      const participants = lastMatchResult.replay?.metadata?.participants ?? [];
+      const playerOnWinning = participants.some((p) => p.teamId === winnerSide && p.playerId === "player");
+      if (playerOnWinning) {
+        winnerLabel = "YOU WIN";
+        shareText = `I won on ${arena?.name || "the arena"} in ${durationLabel} — ArenaScript`;
+      } else {
+        shareText = `${winnerSide === 0 ? "Blue" : "Red"} Team wins on ${arena?.name || "the arena"} — ArenaScript`;
+      }
+    } else if (winnerSide === null) {
+      shareText = `Draw on ${arena?.name || "the arena"} — ArenaScript`;
+    }
+
+    const { blob } = await generateShareCard(lastMatchResult, {
+      arenaName: arena?.name || "Arena",
+      durationLabel,
+      winnerLabel,
+    });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const filename = `arenascript-match-${stamp}.png`;
+
+    // Prefer the native share sheet (mobile) when available + the file is
+    // shareable; fall back to a download otherwise.
+    const file = new File([blob], filename, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: "ArenaScript match",
+          text: shareText,
+          files: [file],
+        });
+        toast("Shared.", "success");
+        SFX.playClick();
+        return;
+      } catch (e) {
+        // User canceled or share failed — fall through to download.
+        if (e && e.name === "AbortError") return;
+      }
+    }
+
+    downloadBlob(blob, filename);
+    toast("Share card downloaded.", "success");
+    SFX.playClick();
+  } catch (e) {
+    toast(`Share card failed: ${e.message ?? String(e)}`, "error");
+  }
+});
+
+// ============================================================================
+// Save Replay — record the live replay playback into a WebM video
+// ============================================================================
+
+let _replayRecording = false;
+
+document.getElementById("btn-save-replay")?.addEventListener("click", async () => {
+  if (_replayRecording) return;
+  if (!replayData || replayData.length === 0) {
+    toast("Run a match first.", "warn");
+    return;
+  }
+  _replayRecording = true;
+  const btn = document.getElementById("btn-save-replay");
+  const originalText = btn?.innerHTML;
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = "Recording… 0%";
+  }
+  // Pause the live replay so the recorder owns the canvas.
+  const wasPlaying = replayPlaying;
+  if (wasPlaying) stopReplay();
+
+  try {
+    const blob = await exportReplay({
+      canvas: canvasEl,
+      frames: replayData,
+      speed: 2,                                       // 2x — clips stay shareable
+      onProgress: (i, total) => {
+        if (btn) btn.innerHTML = `Recording… ${Math.round((i / total) * 100)}%`;
+      },
+      drawFrame: (frame, prev) => {
+        drawFrame(frame, replayLabels, prev);
+        fxAdvanceAndRender();
+      },
+    });
+    const ext = extensionForMime(blob.type);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const filename = `arenascript-replay-${stamp}.${ext}`;
+
+    // Prefer native share where available, fall back to download.
+    const file = new File([blob], filename, { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: "ArenaScript replay",
+          text: "Watch this ArenaScript battle",
+          files: [file],
+        });
+        toast("Replay shared.", "success");
+      } catch (e) {
+        if (!(e && e.name === "AbortError")) {
+          downloadBlob(blob, filename);
+          toast("Replay downloaded.", "success");
+        }
+      }
+    } else {
+      downloadBlob(blob, filename);
+      toast("Replay downloaded.", "success");
+    }
+    SFX.playClick();
+  } catch (e) {
+    toast(`Replay export failed: ${e.message ?? String(e)}`, "error");
+  } finally {
+    _replayRecording = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    }
+  }
 });
 
 // ============================================================================

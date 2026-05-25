@@ -24,6 +24,15 @@
           <span class="tab-icon">&#128218;</span> My Bots
           <span class="tab-count" id="tab-count-library">0</span>
         </button>
+        <button class="view-tab" data-view="community" role="tab" aria-selected="false">
+          <span class="tab-icon">&#127758;</span> Community
+        </button>
+        <button class="view-tab" data-view="tournament" role="tab" aria-selected="false">
+          <span class="tab-icon">&#127942;</span> Tournament
+        </button>
+        <button class="view-tab" data-view="tierlist" role="tab" aria-selected="false">
+          <span class="tab-icon">&#128202;</span> Tier List
+        </button>
       </nav>
     </div>
     <div class="top-bar-actions">
@@ -35,6 +44,16 @@
       </button>
       <button id="btn-open-tour" class="btn btn-ghost" title="Re-open the onboarding tour">
         Tour
+      </button>
+      <button id="btn-quick-battle" class="btn btn-quick-battle" title="Pick robots and fight — no code required">
+        <span aria-hidden="true">&#9876;</span> Quick Battle
+      </button>
+      <button id="btn-sfx-toggle" class="btn btn-ghost btn-sfx" title="Toggle sound effects" aria-label="Toggle sound effects">
+        <span class="sfx-icon" aria-hidden="true">&#128266;</span>
+      </button>
+      <button id="btn-achievements" class="btn btn-ghost btn-achievements" title="View achievements" aria-label="Achievements">
+        <span aria-hidden="true">&#127942;</span>
+        <span id="ach-pill" class="ach-pill">0/0</span>
       </button>
       <span id="auth-status" class="shortcut-hint">Guest</span>
       <button id="btn-auth-open" class="btn btn-compile">Sign In</button>
@@ -52,6 +71,32 @@
 
       <!-- Builder sidebar content: presets + user bots -->
       <div class="sidebar-panel" data-sidebar="builder">
+
+        <!-- Daily Challenge card -->
+        <div class="daily-challenge" id="daily-challenge" hidden>
+          <div class="dc-head">
+            <span class="dc-tag">Daily Challenge</span>
+            <span class="dc-date" id="dc-date"></span>
+          </div>
+          <div class="dc-body">
+            <div class="dc-title" id="dc-title">—</div>
+            <div class="dc-meta" id="dc-meta">—</div>
+          </div>
+          <div class="dc-footer">
+            <span class="dc-best" id="dc-best">No attempts yet</span>
+            <button id="btn-dc-run" class="dc-btn">Play</button>
+          </div>
+          <div class="dc-leaderboard" id="dc-leaderboard" hidden>
+            <div class="dc-lb-head">
+              <span class="dc-lb-title">Today's Leaderboard</span>
+              <button id="btn-dc-lb-refresh" class="dc-lb-refresh" title="Refresh">&#x21bb;</button>
+            </div>
+            <ol class="dc-lb-list" id="dc-lb-list"></ol>
+            <div class="dc-lb-empty" id="dc-lb-empty" hidden>No times yet today — be first!</div>
+            <div class="dc-lb-signin" id="dc-lb-signin" hidden>Sign in to submit your time.</div>
+          </div>
+        </div>
+
         <div class="sidebar-header">Start Here · Tutorial</div>
 
         <button class="bot-preset" data-bot="rookie" title="Rookie — Simplest possible bot. Start here.">
@@ -275,6 +320,96 @@
         </div>
       </div>
 
+      <!-- Tier List sidebar content -->
+      <div class="sidebar-panel" data-sidebar="tierlist" hidden>
+        <div class="sidebar-header">Tier List</div>
+        <div class="sidebar-section">
+          <label for="tier-seeds">Seeds per matchup</label>
+          <select id="tier-seeds" class="opponent-select">
+            <option value="1">1 (fast)</option>
+            <option value="3" selected>3 (balanced)</option>
+            <option value="5">5 (thorough)</option>
+          </select>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-tier-run" class="btn btn-run btn-block">Compute Tier List</button>
+        </div>
+        <div class="sidebar-section">
+          <button id="btn-tier-clear" class="btn btn-ghost btn-block">Clear cache</button>
+        </div>
+        <div class="sidebar-help" style="padding: 0 14px;">
+          Runs every preset against every other preset across N seeds, then ranks them by win rate.
+        </div>
+      </div>
+
+      <!-- Tournament sidebar content: setup -->
+      <div class="sidebar-panel" data-sidebar="tournament" hidden>
+        <div class="sidebar-header">Tournament Setup</div>
+        <div class="sidebar-section">
+          <label for="tourn-size">Bracket size</label>
+          <select id="tourn-size" class="opponent-select">
+            <option value="4">4 robots (3 matches)</option>
+            <option value="8" selected>8 robots (7 matches)</option>
+            <option value="16">16 robots (15 matches)</option>
+          </select>
+        </div>
+        <div class="sidebar-section">
+          <label for="tourn-arena">Arena</label>
+          <select id="tourn-arena" class="opponent-select"></select>
+        </div>
+        <div class="sidebar-section">
+          <label for="tourn-seed">Seed (blank = random)</label>
+          <input id="tourn-seed" type="number" class="opponent-select" placeholder="Random" min="0" max="2147483646">
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-tourn-pick" class="btn btn-team-builder-open">Pick Participants</button>
+          <button id="btn-tourn-autofill" class="btn btn-run btn-block" style="margin-top:6px;">Auto-fill with presets</button>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-tourn-run" class="btn btn-run btn-block" disabled>Run Tournament</button>
+        </div>
+        <div class="sidebar-help" style="padding: 0 14px;">
+          Single-elimination bracket. Your editor bot is automatically the top seed.
+        </div>
+      </div>
+
+      <!-- Community sidebar content: filters -->
+      <div class="sidebar-panel" data-sidebar="community" hidden>
+        <div class="sidebar-header">Community Bots</div>
+        <div class="sidebar-section">
+          <label for="community-search">Search</label>
+          <input id="community-search" type="text" class="opponent-select" placeholder="Name or author" autocomplete="off">
+        </div>
+        <div class="sidebar-section">
+          <label for="community-class">Class</label>
+          <select id="community-class" class="opponent-select">
+            <option value="">All classes</option>
+            <option value="brawler">Brawler</option>
+            <option value="ranger">Ranger</option>
+            <option value="tank">Tank</option>
+            <option value="support">Support</option>
+          </select>
+        </div>
+        <div class="sidebar-section">
+          <label for="community-sort">Sort</label>
+          <select id="community-sort" class="opponent-select">
+            <option value="recent" selected>Most recent</option>
+            <option value="oldest">Oldest</option>
+            <option value="name">Name (A-Z)</option>
+          </select>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-community-refresh" class="btn btn-run btn-block">Refresh</button>
+        </div>
+        <div class="sidebar-help" style="padding: 0 14px;">
+          Bots shared publicly by other ArenaScript players. Install one to your library to use it in battles.
+        </div>
+      </div>
+
       <!-- Library sidebar content: filters -->
       <div class="sidebar-panel" data-sidebar="library" hidden>
         <div class="sidebar-header">Filter</div>
@@ -377,6 +512,9 @@
                 </div>
               </div>
 
+              <!-- Kill feed overlay (live during a match) -->
+              <div id="kill-feed" class="kill-feed" aria-hidden="true"></div>
+
               <!-- Live combatant HUD: team rosters with HP bars (match-live only) -->
               <div id="match-hud" class="match-hud" aria-hidden="true">
                 <div class="match-hud-team match-hud-team-0" id="match-hud-team0"></div>
@@ -424,7 +562,15 @@
 
             <!-- Match Results scorecard (revealed when the replay finishes) -->
             <div id="match-results" class="match-results">
-              <div class="match-results-title">Match Report</div>
+              <div class="match-results-header">
+                <div class="match-results-title">Match Report</div>
+                <button id="btn-share-card" class="btn btn-compile share-card-btn" title="Generate a shareable PNG of this match">
+                  <span aria-hidden="true">&#128247;</span> Share Card
+                </button>
+                <button id="btn-save-replay" class="btn btn-compile share-card-btn" title="Save the replay as a WebM video">
+                  <span aria-hidden="true">&#127909;</span> Save Replay
+                </button>
+              </div>
               <div id="results-content"></div>
               <div id="results-robot-detail" class="result-robot-detail"></div>
             </div>
@@ -487,6 +633,89 @@
         </div>
       </div>
 
+      <!-- ============ TIER LIST VIEW ============ -->
+      <div class="view-content view-content-tierlist" data-view-content="tierlist" hidden>
+        <div class="library-header">
+          <div class="library-title">
+            <h2>Tier List</h2>
+            <span class="library-subtitle">Every preset vs every other preset. Win-rate-ranked into S / A / B / C / D tiers.</span>
+          </div>
+          <div class="library-actions">
+            <span id="tier-status" class="community-count">Idle</span>
+          </div>
+        </div>
+
+        <div id="tier-empty" class="library-empty">
+          <div class="library-empty-icon">&#128202;</div>
+          <h3>No tier data yet</h3>
+          <p>Click <b>Compute Tier List</b> in the sidebar. This will run all preset pairings client-side &mdash; takes ~30 seconds.</p>
+        </div>
+
+        <div id="tier-progress" class="tier-progress" hidden>
+          <div class="tier-progress-bar"><div id="tier-progress-fill" class="tier-progress-fill"></div></div>
+          <div id="tier-progress-text" class="tier-progress-text">—</div>
+        </div>
+
+        <div id="tier-board" class="tier-board" hidden></div>
+      </div>
+
+      <!-- ============ TOURNAMENT VIEW ============ -->
+      <div class="view-content view-content-tournament" data-view-content="tournament" hidden>
+        <div class="library-header">
+          <div class="library-title">
+            <h2>Tournament</h2>
+            <span class="library-subtitle">Single-elimination bracket. Pick your participants in the sidebar, then hit <b>Run Tournament</b>.</span>
+          </div>
+          <div class="library-actions">
+            <span id="tourn-status" class="community-count">Idle</span>
+          </div>
+        </div>
+
+        <div id="tourn-empty" class="library-empty">
+          <div class="library-empty-icon">&#127942;</div>
+          <h3>No bracket yet</h3>
+          <p>Pick your bracket size in the sidebar, click <b>Pick Participants</b> to choose robots, then <b>Run Tournament</b> to watch the bracket fill in live.</p>
+        </div>
+
+        <div id="tourn-roster" class="tourn-roster" hidden>
+          <div class="tourn-roster-head">
+            <h3>Participants <span id="tourn-roster-count">0</span></h3>
+            <button id="btn-tourn-clear" class="bc-btn">Clear</button>
+          </div>
+          <div id="tourn-roster-grid" class="tourn-roster-grid"></div>
+        </div>
+
+        <div id="tourn-bracket" class="tourn-bracket" hidden></div>
+
+        <div id="tourn-winner" class="tourn-winner" hidden>
+          <div class="tw-trophy">&#127942;</div>
+          <div class="tw-tag">Champion</div>
+          <div class="tw-name" id="tw-name">—</div>
+          <div class="tw-stats" id="tw-stats">—</div>
+          <button id="btn-tourn-new" class="btn btn-run">Run Another Tournament</button>
+        </div>
+      </div>
+
+      <!-- ============ COMMUNITY VIEW ============ -->
+      <div class="view-content view-content-community" data-view-content="community" hidden>
+        <div class="library-header">
+          <div class="library-title">
+            <h2>Community Bots</h2>
+            <span class="library-subtitle">Public bots shared by ArenaScript players. Install a copy to your library to use it in battles.</span>
+          </div>
+          <div class="library-actions">
+            <span id="community-count" class="community-count">—</span>
+          </div>
+        </div>
+        <div id="community-banner" class="community-banner" hidden></div>
+        <div id="community-grid" class="library-grid community-grid"></div>
+        <div id="community-empty" class="library-empty" hidden>
+          <div class="library-empty-icon">&#127758;</div>
+          <h3>No public bots yet</h3>
+          <p>Sign in and click <b>Share</b> on one of your bots in <b>My Bots</b> to be the first.</p>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -546,6 +775,82 @@
         <div class="tb-footer-actions">
           <button id="btn-tb-cancel" class="tb-btn-secondary" type="button">Cancel</button>
           <button id="btn-tb-run" class="tb-btn-primary" type="button">Run Battle</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Achievements Modal -->
+  <div id="achievements-modal" class="tb-modal-overlay" hidden role="dialog" aria-label="Achievements">
+    <div class="tb-modal ach-modal">
+      <div class="tb-modal-header">
+        <h2>Achievements</h2>
+        <button id="btn-close-achievements" class="tb-modal-close" title="Close">&times;</button>
+      </div>
+      <div class="ach-summary">
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-unlocked">0</div>
+          <div class="ach-stat-label">Unlocked</div>
+        </div>
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-wins">0</div>
+          <div class="ach-stat-label">Wins</div>
+        </div>
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-played">0</div>
+          <div class="ach-stat-label">Matches</div>
+        </div>
+        <div class="ach-summary-stat">
+          <div class="ach-stat-value" id="ach-stat-streak">0</div>
+          <div class="ach-stat-label">Streak</div>
+        </div>
+      </div>
+      <div class="ach-tabs" role="tablist">
+        <button class="ach-tab active" data-ach-tab="achievements" type="button" role="tab" aria-selected="true">Achievements</button>
+        <button class="ach-tab" data-ach-tab="rivals" type="button" role="tab" aria-selected="false">Rivals</button>
+      </div>
+      <div class="tb-modal-body ach-body">
+        <div id="ach-grid" class="ach-grid" data-ach-tab-panel="achievements"></div>
+        <div id="ach-rivals" class="ach-rivals" data-ach-tab-panel="rivals" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Achievement Unlock Toast -->
+  <div id="ach-unlock-toast" class="ach-unlock-toast" hidden aria-live="polite">
+    <div class="ach-unlock-icon" id="ach-unlock-icon">🏆</div>
+    <div class="ach-unlock-body">
+      <div class="ach-unlock-tag">Achievement unlocked</div>
+      <div class="ach-unlock-title" id="ach-unlock-title">—</div>
+      <div class="ach-unlock-desc" id="ach-unlock-desc">—</div>
+    </div>
+  </div>
+
+  <!-- Bot Picker Modal — visual roster picker used by Team Builder -->
+  <div id="bot-picker-modal" class="tb-modal-overlay" hidden role="dialog" aria-label="Pick a robot">
+    <div class="tb-modal bp-modal">
+      <div class="tb-modal-header">
+        <h2 id="bot-picker-title">Pick a Robot</h2>
+        <button id="btn-close-bot-picker" class="tb-modal-close" title="Close">&times;</button>
+      </div>
+      <div class="bp-toolbar">
+        <input id="bot-picker-search" class="bp-search" type="text" placeholder="Search robots…" autocomplete="off" spellcheck="false" />
+        <div class="bp-filters" role="group" aria-label="Filter by class">
+          <button class="bp-filter active" data-bp-class="" type="button">All</button>
+          <button class="bp-filter" data-bp-class="brawler" type="button">Brawler</button>
+          <button class="bp-filter" data-bp-class="ranger" type="button">Ranger</button>
+          <button class="bp-filter" data-bp-class="tank" type="button">Tank</button>
+          <button class="bp-filter" data-bp-class="support" type="button">Support</button>
+        </div>
+      </div>
+      <div class="tb-modal-body bp-body">
+        <div id="bot-picker-grid" class="bp-grid" role="listbox" aria-label="Available robots"></div>
+        <div id="bot-picker-empty" class="bp-empty" hidden>No robots match those filters.</div>
+      </div>
+      <div class="tb-modal-footer">
+        <span class="bp-footer-hint">Tap a robot to add it to your roster.</span>
+        <div class="tb-footer-actions">
+          <button id="btn-bot-picker-cancel" class="tb-btn-secondary" type="button">Cancel</button>
         </div>
       </div>
     </div>

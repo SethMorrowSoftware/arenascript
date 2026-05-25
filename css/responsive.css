@@ -80,11 +80,136 @@
   .btn-compile-run {
     display: none;
   }
-  .view-content-library {
+  .view-content-library,
+  .view-content-community,
+  .view-content-tournament {
     padding: 16px;
   }
   .library-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Top bar — wrap into two rows so every action stays reachable */
+  .top-bar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 48px;
+    padding: 6px 8px;
+    gap: 4px 8px;
+    justify-content: center;
+  }
+  .top-bar-left,
+  .top-bar-actions {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    justify-content: center;
+  }
+  .btn-ghost {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+  #btn-open-palette,
+  #btn-open-lang-ref,
+  #btn-open-tour,
+  #btn-sync-cloud,
+  #btn-auth-logout,
+  #auth-status {
+    display: none;
+  }
+  /* Auth open button shrinks to "In" text on mobile */
+  #btn-auth-open {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+  .btn-quick-battle {
+    padding: 6px 10px;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .btn-achievements,
+  .btn-sfx {
+    padding: 6px 8px;
+    flex-shrink: 0;
+  }
+  .ach-pill {
+    display: none;          /* Just the trophy icon on mobile */
+  }
+  .version-badge {
+    display: none;
+  }
+  h1 {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .view-tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 5px 8px;
+    font-size: 0;          /* Hide text — only the icon shows */
+  }
+  .view-tab .tab-icon {
+    display: inline-flex;
+    font-size: 16px;
+    margin: 0;
+  }
+  .view-tab.active {
+    font-size: 11px;       /* Show text on the active tab so the user
+                              has a label for where they are. */
+  }
+  .view-tab .tab-count {
+    font-size: 10px;
+  }
+
+  /* Daily challenge is too cramped on mobile — hide until larger viewport */
+  .daily-challenge {
+    display: none;
+  }
+
+  /* Bot picker grid: 1 column on phones */
+  .bp-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Achievement grid: 1 column */
+  .ach-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .ach-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Tournament: single-column bracket */
+  .tourn-bracket {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .tourn-round {
+    min-width: unset;
+  }
+  .tourn-round:not(:last-child) .tourn-match::after {
+    display: none;
+  }
+  .tourn-roster-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* Kill feed: smaller + repositioned for narrow viewports */
+  .kill-feed {
+    top: 50px;
+    right: 8px;
+    max-width: 200px;
+  }
+  .kill-feed-entry {
+    font-size: 10px;
+    padding: 4px 8px;
+  }
+
+  /* Match HUD: smaller team rosters */
+  .match-hud-team {
+    width: 140px !important;
+    font-size: 10px;
   }
 }
 

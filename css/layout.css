@@ -468,6 +468,18 @@
   display: none;
 }
 
+.view-content-community[hidden] {
+  display: none;
+}
+
+.view-content-tournament[hidden] {
+  display: none;
+}
+
+.view-content-tierlist[hidden] {
+  display: none;
+}
+
 /* ---- Workspace ---- */
 
 .workspace {

@@ -174,6 +174,67 @@ export function updateBot(id, source) {
   return { ok: true, bot: bots[idx], errors: [], warnings: v.warnings };
 }
 
+/**
+ * Set or clear a bot's avatar. Pass a data URL (image/png or image/webp,
+ * <= ~16KB after downscaling) or null to clear.
+ */
+export function setAvatar(id, dataUrl) {
+  const bots = getAll();
+  const idx = bots.findIndex((b) => b.id === id);
+  if (idx === -1) return false;
+  if (dataUrl) {
+    if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) return false;
+    // Guard against an attacker stuffing huge blobs into localStorage by
+    // capping at 32KB — well above what a 64x64 PNG should produce.
+    if (dataUrl.length > 32_768) return false;
+  }
+  bots[idx] = { ...bots[idx], avatar: dataUrl || null, updatedAt: Date.now() };
+  saveAll(bots);
+  return true;
+}
+
+/**
+ * Resize a File (image) to a 64x64 square, encoded as a webp data URL.
+ * Returns the data URL or rejects if the file isn't a renderable image.
+ */
+export function resizeImageFileToAvatar(file, { size = 64 } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type || !file.type.startsWith("image/")) {
+      reject(new Error("Not an image file"));
+      return;
+    }
+    if (typeof file.size === "number" && file.size > 4_000_000) {
+      reject(new Error("Image too large (>4MB)"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Read failed"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        // Cover-fit: crop to square at center.
+        const min = Math.min(img.width, img.height);
+        const sx = (img.width - min) / 2;
+        const sy = (img.height - min) / 2;
+        ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+        // Prefer webp (smaller); fall back to png for browsers without webp.
+        let url = canvas.toDataURL("image/webp", 0.85);
+        if (!url.startsWith("data:image/webp")) {
+          url = canvas.toDataURL("image/png");
+        }
+        resolve(url);
+      };
+      img.onerror = () => reject(new Error("Image decode failed"));
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 /** Rename (metadata only — does not modify source). */
 export function renameBot(id, newName) {
   const bots = getAll();
