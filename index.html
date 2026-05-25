@@ -30,6 +30,9 @@
         <button class="view-tab" data-view="tournament" role="tab" aria-selected="false">
           <span class="tab-icon">&#127942;</span> Tournament
         </button>
+        <button class="view-tab" data-view="tierlist" role="tab" aria-selected="false">
+          <span class="tab-icon">&#128202;</span> Tier List
+        </button>
       </nav>
     </div>
     <div class="top-bar-actions">
@@ -314,6 +317,29 @@
           <label>Your Bot</label>
           <div id="arena-loaded-bot" class="arena-loaded-bot">None loaded</div>
           <div class="sidebar-help">Write &amp; compile in Builder, or pick a bot in My Bots.</div>
+        </div>
+      </div>
+
+      <!-- Tier List sidebar content -->
+      <div class="sidebar-panel" data-sidebar="tierlist" hidden>
+        <div class="sidebar-header">Tier List</div>
+        <div class="sidebar-section">
+          <label for="tier-seeds">Seeds per matchup</label>
+          <select id="tier-seeds" class="opponent-select">
+            <option value="1">1 (fast)</option>
+            <option value="3" selected>3 (balanced)</option>
+            <option value="5">5 (thorough)</option>
+          </select>
+        </div>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section">
+          <button id="btn-tier-run" class="btn btn-run btn-block">Compute Tier List</button>
+        </div>
+        <div class="sidebar-section">
+          <button id="btn-tier-clear" class="btn btn-ghost btn-block">Clear cache</button>
+        </div>
+        <div class="sidebar-help" style="padding: 0 14px;">
+          Runs every preset against every other preset across N seeds, then ranks them by win rate.
         </div>
       </div>
 
@@ -602,6 +628,32 @@
           <h3>No bots in your library yet</h3>
           <p>Write a bot in the <b>Builder</b> and click <b>Save to Library</b>, or drop a <code>.arena</code> file above.</p>
         </div>
+      </div>
+
+      <!-- ============ TIER LIST VIEW ============ -->
+      <div class="view-content view-content-tierlist" data-view-content="tierlist" hidden>
+        <div class="library-header">
+          <div class="library-title">
+            <h2>Tier List</h2>
+            <span class="library-subtitle">Every preset vs every other preset. Win-rate-ranked into S / A / B / C / D tiers.</span>
+          </div>
+          <div class="library-actions">
+            <span id="tier-status" class="community-count">Idle</span>
+          </div>
+        </div>
+
+        <div id="tier-empty" class="library-empty">
+          <div class="library-empty-icon">&#128202;</div>
+          <h3>No tier data yet</h3>
+          <p>Click <b>Compute Tier List</b> in the sidebar. This will run all preset pairings client-side &mdash; takes ~30 seconds.</p>
+        </div>
+
+        <div id="tier-progress" class="tier-progress" hidden>
+          <div class="tier-progress-bar"><div id="tier-progress-fill" class="tier-progress-fill"></div></div>
+          <div id="tier-progress-text" class="tier-progress-text">—</div>
+        </div>
+
+        <div id="tier-board" class="tier-board" hidden></div>
       </div>
 
       <!-- ============ TOURNAMENT VIEW ============ -->

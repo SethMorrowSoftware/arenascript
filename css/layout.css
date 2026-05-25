@@ -476,6 +476,10 @@
   display: none;
 }
 
+.view-content-tierlist[hidden] {
+  display: none;
+}
+
 /* ---- Workspace ---- */
 
 .workspace {

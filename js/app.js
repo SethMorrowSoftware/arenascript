@@ -6130,7 +6130,7 @@ function toast(message, type = "info", timeout = 3500) {
 // ============================================================================
 
 function setView(name) {
-  if (name !== "builder" && name !== "arena" && name !== "library" && name !== "community" && name !== "tournament") return;
+  if (name !== "builder" && name !== "arena" && name !== "library" && name !== "community" && name !== "tournament" && name !== "tierlist") return;
 
   const leavingArena = currentView === "arena" && name !== "arena";
   currentView = name;
@@ -6163,11 +6163,13 @@ function setView(name) {
   const libraryView = document.querySelector('[data-view-content="library"]');
   const communityView = document.querySelector('[data-view-content="community"]');
   const tournamentView = document.querySelector('[data-view-content="tournament"]');
-  const isFullPageView = name === "library" || name === "community" || name === "tournament";
+  const tierlistView = document.querySelector('[data-view-content="tierlist"]');
+  const isFullPageView = name === "library" || name === "community" || name === "tournament" || name === "tierlist";
   if (workspace) workspace.hidden = isFullPageView;
   if (libraryView) libraryView.hidden = name !== "library";
   if (communityView) communityView.hidden = name !== "community";
   if (tournamentView) tournamentView.hidden = name !== "tournament";
+  if (tierlistView) tierlistView.hidden = name !== "tierlist";
 
   if (name === "library") {
     renderLibrary();
@@ -6175,6 +6177,8 @@ function setView(name) {
     renderCommunity();
   } else if (name === "tournament") {
     initTournamentView();
+  } else if (name === "tierlist") {
+    initTierListView();
   } else if (name === "arena") {
     // Resize canvas to fill the arena pane since editor collapses
     requestAnimationFrame(resizeArenaCanvasForCurrentView);
@@ -8165,6 +8169,201 @@ tournSizeEl?.addEventListener("change", () => {
   const cap = tournRosterCapacity();
   if (_tournRoster.length > cap) _tournRoster = _tournRoster.slice(0, cap);
   renderTournamentView();
+});
+
+// ============================================================================
+// Tier List — preset vs preset gauntlet, ranked by win rate
+// ============================================================================
+//
+// Runs every preset against every other preset across N seeds, computes a
+// global win rate per preset, then buckets the results into S / A / B / C / D
+// tiers. Caches the last result in localStorage so the page doesn't have to
+// recompute on every visit.
+
+const TIER_CACHE_KEY = "arenascript.tierlist.v1";
+const TIER_PRESETS = [
+  "bruiser", "kiter", "fortress", "healer", "flanker", "sentinel",
+  "hivemind", "phantom", "warden", "overclock", "oracle", "zealot", "predator",
+];
+
+const tierBoardEl = document.getElementById("tier-board");
+const tierEmptyEl = document.getElementById("tier-empty");
+const tierProgressEl = document.getElementById("tier-progress");
+const tierProgressFill = document.getElementById("tier-progress-fill");
+const tierProgressText = document.getElementById("tier-progress-text");
+const tierStatusEl = document.getElementById("tier-status");
+const tierSeedsEl = document.getElementById("tier-seeds");
+const btnTierRun = document.getElementById("btn-tier-run");
+const btnTierClear = document.getElementById("btn-tier-clear");
+
+let _tierRunning = false;
+
+function tierReadCache() {
+  try {
+    const raw = localStorage.getItem(TIER_CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
+function tierWriteCache(data) {
+  try { localStorage.setItem(TIER_CACHE_KEY, JSON.stringify(data)); } catch {}
+}
+
+function initTierListView() {
+  const cached = tierReadCache();
+  if (cached) {
+    tierRenderBoard(cached.results, cached.seeds, cached.ts);
+  } else {
+    if (tierBoardEl) tierBoardEl.hidden = true;
+    if (tierEmptyEl) tierEmptyEl.hidden = false;
+    if (tierStatusEl) tierStatusEl.textContent = "Idle";
+  }
+}
+
+function tierBucketize(percent) {
+  if (percent >= 70) return "S";
+  if (percent >= 55) return "A";
+  if (percent >= 45) return "B";
+  if (percent >= 30) return "C";
+  return "D";
+}
+
+function tierRenderBoard(results, seeds, computedAt) {
+  if (!tierBoardEl) return;
+  if (tierEmptyEl) tierEmptyEl.hidden = true;
+  if (tierProgressEl) tierProgressEl.hidden = true;
+  tierBoardEl.hidden = false;
+
+  // Group by tier label.
+  const tiers = { S: [], A: [], B: [], C: [], D: [] };
+  for (const r of results) tiers[tierBucketize(r.percent)].push(r);
+  for (const k of Object.keys(tiers)) tiers[k].sort((a, b) => b.percent - a.percent);
+
+  const tierOrder = ["S", "A", "B", "C", "D"];
+  const html = tierOrder.map((label) => {
+    const list = tiers[label];
+    const cards = list.length === 0
+      ? `<span class="tier-empty-tier">no entries</span>`
+      : list.map((r) => {
+          const entry = getBotEntry(r.key);
+          if (!entry) return "";
+          const cls = escapeHtml(entry.class);
+          return `
+            <div class="tier-card">
+              <span class="tier-card-icon ${cls}">${botIconInner(r.key)}</span>
+              <span class="tier-card-name">${escapeHtml(entry.name)}</span>
+              <span class="tier-card-pct">${Math.round(r.percent)}%</span>
+            </div>`;
+        }).join("");
+    return `
+      <div class="tier-row tier-row-${label.toLowerCase()}">
+        <div class="tier-label">${label}</div>
+        <div class="tier-cards">${cards}</div>
+      </div>`;
+  }).join("");
+  tierBoardEl.innerHTML = html;
+
+  if (tierStatusEl) {
+    const ago = computedAt ? `· ${formatDate(computedAt)}` : "";
+    tierStatusEl.textContent = `${seeds} seed${seeds > 1 ? "s" : ""}/matchup ${ago}`;
+  }
+}
+
+async function runTierList() {
+  if (_tierRunning) return;
+  _tierRunning = true;
+  if (btnTierRun) btnTierRun.disabled = true;
+  if (tierEmptyEl) tierEmptyEl.hidden = true;
+  if (tierBoardEl) tierBoardEl.hidden = true;
+  if (tierProgressEl) tierProgressEl.hidden = false;
+  if (tierStatusEl) tierStatusEl.textContent = "Running…";
+
+  const seedsPer = Math.max(1, parseInt(tierSeedsEl?.value || "3", 10));
+
+  // Compile each preset once.
+  const compiled = new Map();
+  for (const key of TIER_PRESETS) {
+    const entry = getBotEntry(key);
+    if (!entry) continue;
+    try {
+      const r = compile(entry.source);
+      if (r.success) compiled.set(key, r);
+    } catch { /* skip */ }
+  }
+  const keys = [...compiled.keys()];
+
+  // Build the matchup queue (a < b only — wins/losses split symmetrically).
+  const matchups = [];
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      for (let s = 0; s < seedsPer; s++) {
+        matchups.push({ a: keys[i], b: keys[j], seed: (i * 131 + j * 37 + s * 7919) % 2147483646 });
+      }
+    }
+  }
+
+  const records = new Map(keys.map((k) => [k, { wins: 0, losses: 0, draws: 0 }]));
+  let done = 0;
+
+  for (const m of matchups) {
+    const ca = compiled.get(m.a);
+    const cb = compiled.get(m.b);
+    const setup = {
+      config: {
+        mode: "duel_1v1",
+        arenaWidth: ARENA_WIDTH, arenaHeight: ARENA_HEIGHT,
+        maxTicks: 1500, tickRate: 30,
+        seed: m.seed,
+        arenaId: DEFAULT_ARENA_ID,
+      },
+      participants: [
+        { program: ca.program, constants: ca.constants, playerId: m.a, teamId: 0 },
+        { program: cb.program, constants: cb.constants, playerId: m.b, teamId: 1 },
+      ],
+    };
+    try {
+      const result = runMatch(setup);
+      if (result.winner === 0) { records.get(m.a).wins++; records.get(m.b).losses++; }
+      else if (result.winner === 1) { records.get(m.b).wins++; records.get(m.a).losses++; }
+      else { records.get(m.a).draws++; records.get(m.b).draws++; }
+    } catch { /* skip */ }
+
+    done++;
+    if (tierProgressFill) tierProgressFill.style.width = `${(done / matchups.length) * 100}%`;
+    if (tierProgressText) {
+      const entryA = getBotEntry(m.a)?.name || m.a;
+      const entryB = getBotEntry(m.b)?.name || m.b;
+      tierProgressText.textContent = `${done}/${matchups.length} · ${entryA} vs ${entryB}`;
+    }
+    // Yield to keep the UI responsive — every 4 matchups.
+    if (done % 4 === 0) await nextFrame();
+  }
+
+  const results = keys.map((k) => {
+    const r = records.get(k);
+    const total = r.wins + r.losses + r.draws;
+    const percent = total > 0 ? (r.wins / total) * 100 : 0;
+    return { key: k, wins: r.wins, losses: r.losses, draws: r.draws, percent };
+  });
+  results.sort((a, b) => b.percent - a.percent);
+
+  const cache = { results, seeds: seedsPer, ts: Date.now() };
+  tierWriteCache(cache);
+  tierRenderBoard(results, seedsPer, cache.ts);
+
+  _tierRunning = false;
+  if (btnTierRun) btnTierRun.disabled = false;
+  toast(`Tier list computed (${matchups.length} matches).`, "success");
+}
+
+btnTierRun?.addEventListener("click", runTierList);
+btnTierClear?.addEventListener("click", () => {
+  try { localStorage.removeItem(TIER_CACHE_KEY); } catch {}
+  if (tierBoardEl) tierBoardEl.hidden = true;
+  if (tierEmptyEl) tierEmptyEl.hidden = false;
+  if (tierStatusEl) tierStatusEl.textContent = "Idle";
+  toast("Tier list cache cleared.", "info");
 });
 
 // ============================================================================
