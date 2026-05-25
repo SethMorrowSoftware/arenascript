@@ -6349,6 +6349,8 @@ async function refreshCurrentUser() {
     refreshVisibilityCache().then(() => {
       if (currentView === "library") renderLibrary();
     }).catch(() => {});
+    // Refresh daily leaderboard so "(you)" row highlight works after auth.
+    if (typeof dcRefreshLeaderboard === "function") dcRefreshLeaderboard();
   }
 }
 
@@ -7251,6 +7253,10 @@ const dcTitleEl = document.getElementById("dc-title");
 const dcMetaEl = document.getElementById("dc-meta");
 const dcBestEl = document.getElementById("dc-best");
 const dcRunBtn = document.getElementById("btn-dc-run");
+const dcLeaderboardEl = document.getElementById("dc-leaderboard");
+const dcLbListEl = document.getElementById("dc-lb-list");
+const dcLbEmptyEl = document.getElementById("dc-lb-empty");
+const dcLbSigninEl = document.getElementById("dc-lb-signin");
 
 function dcTodayKey() {
   const d = new Date();
@@ -7368,14 +7374,74 @@ async function dcRun() {
     if (playerWon) {
       toast(`Daily Challenge: WON in ${dcFormatTicks(lastMatchResult.tickCount)}`, "success");
       Achievements.fact("daily_won", { durationTicks: lastMatchResult.tickCount });
+      // Submit to the cloud leaderboard if signed in. Best-time only — the
+      // backend dedupes per (day, username) and keeps the fastest winner.
+      if (currentUser) {
+        ApiClient.postDailyResult({
+          day: cfg.dayKey,
+          ticks: lastMatchResult.tickCount,
+          won: true,
+        }).then(() => dcRefreshLeaderboard()).catch(() => {});
+      }
     } else if (!isDraw) {
       toast(`Daily Challenge: try again — that was attempt #${(dcGetState()[cfg.dayKey]?.attempts) || 1}`, "info");
     }
   }
 }
 
+// ---------------------------------------------------------------------------
+// Daily Challenge cloud leaderboard
+// ---------------------------------------------------------------------------
+
+let _dcLbLoading = false;
+async function dcRefreshLeaderboard() {
+  if (!dcLeaderboardEl || _dcLbLoading) return;
+  _dcLbLoading = true;
+  const cfg = dcTodayConfig();
+  let payload;
+  try {
+    payload = await ApiClient.getDailyLeaderboard({ day: cfg.dayKey });
+  } catch (e) {
+    // Backend unreachable — hide leaderboard quietly (works offline).
+    dcLeaderboardEl.hidden = true;
+    _dcLbLoading = false;
+    return;
+  }
+  _dcLbLoading = false;
+  if (!payload || !Array.isArray(payload.leaders)) {
+    dcLeaderboardEl.hidden = true;
+    return;
+  }
+  dcLeaderboardEl.hidden = false;
+  if (dcLbSigninEl) dcLbSigninEl.hidden = !!currentUser;
+  const leaders = payload.leaders;
+  if (leaders.length === 0) {
+    if (dcLbListEl) dcLbListEl.innerHTML = "";
+    if (dcLbEmptyEl) dcLbEmptyEl.hidden = false;
+    return;
+  }
+  if (dcLbEmptyEl) dcLbEmptyEl.hidden = true;
+  const youName = currentUser?.username || null;
+  const rows = leaders.slice(0, 10).map((row, i) => {
+    const isYou = youName && row.username === youName;
+    const rank = i + 1;
+    const cls = isYou ? "dc-lb-you" : rank === 1 ? "dc-lb-gold" : rank === 2 ? "dc-lb-silver" : rank === 3 ? "dc-lb-bronze" : "";
+    const ticks = Number(row.ticks) || 0;
+    return `
+      <li class="${cls}">
+        <span class="dc-rank">${rank}</span>
+        <span class="dc-name">${escapeHtml(row.username)}${isYou ? " (you)" : ""}</span>
+        <span class="dc-time">${(ticks / 30).toFixed(1)}s</span>
+      </li>`;
+  }).join("");
+  if (dcLbListEl) dcLbListEl.innerHTML = rows;
+}
+
+document.getElementById("btn-dc-lb-refresh")?.addEventListener("click", dcRefreshLeaderboard);
+
 dcRunBtn?.addEventListener("click", dcRun);
 dcRender();
+dcRefreshLeaderboard();
 
 // ============================================================================
 // Achievements wiring

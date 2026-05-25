@@ -2320,3 +2320,113 @@
   font-family: var(--font-mono);
   letter-spacing: 0.4px;
 }
+
+/* ============================================================================
+   Daily Challenge — cloud leaderboard
+   ============================================================================ */
+
+.dc-leaderboard {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dc-lb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.dc-lb-title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #d8b4fe;
+}
+
+.dc-lb-refresh {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: all var(--transition-fast);
+}
+
+.dc-lb-refresh:hover {
+  color: var(--accent-cyan);
+  background: rgba(0, 212, 255, 0.1);
+}
+
+.dc-lb-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dc-lb-list li {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.dc-lb-list li.dc-lb-you {
+  background: rgba(0, 212, 255, 0.12);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.dc-lb-list .dc-rank {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.dc-lb-list .dc-name {
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dc-lb-list .dc-time {
+  font-weight: 800;
+  color: var(--accent-green);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+}
+
+.dc-lb-list li.dc-lb-gold .dc-rank { color: #fbbf24; }
+.dc-lb-list li.dc-lb-silver .dc-rank { color: #cbd5e1; }
+.dc-lb-list li.dc-lb-bronze .dc-rank { color: #d97706; }
+
+.dc-lb-empty,
+.dc-lb-signin {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 8px 4px;
+  font-style: italic;
+}
+
+.dc-lb-signin {
+  color: var(--accent-cyan);
+  opacity: 0.8;
+}

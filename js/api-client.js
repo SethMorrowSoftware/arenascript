@@ -110,6 +110,23 @@ export async function getCommunityBot(id) {
   return request(`/bots/community.php?id=${q}`, { method: "GET" });
 }
 
+// ---------------------------------------------------------------------------
+// Daily Challenge — cloud leaderboard
+// ---------------------------------------------------------------------------
+
+export async function getDailyLeaderboard({ day } = {}) {
+  const params = day ? `?day=${encodeURIComponent(day)}` : "";
+  return request(`/daily/leaderboard.php${params}`, { method: "GET" });
+}
+
+export async function postDailyResult({ day, ticks, won }) {
+  return request("/daily/leaderboard.php", {
+    method: "POST",
+    auth: true,
+    body: { day, ticks, won: !!won },
+  });
+}
+
 export function hasAuthToken() {
   return !!getToken();
 }
