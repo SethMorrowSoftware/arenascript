@@ -42,6 +42,23 @@
   background-clip: text;
 }
 
+.top-bar .brand-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: opacity var(--transition-fast);
+}
+
+.top-bar .brand-link:hover {
+  opacity: 0.85;
+}
+
+.top-bar .brand-link:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 4px;
+}
+
 .top-bar h1 span {
   -webkit-text-fill-color: var(--text-primary);
   font-weight: 400;

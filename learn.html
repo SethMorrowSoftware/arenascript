@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Learn ArenaScript — Start Here</title>
+  <meta name="description" content="Step-by-step guide to writing your first ArenaScript robot. From your first on-tick handler to squad coordination.">
+  <link rel="stylesheet" href="css/design.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F916;</text></svg>">
+</head>
+<body class="page-marketing">
+
+  <!-- Top Nav -->
+  <header class="site-nav" role="banner">
+    <a href="index.html" class="site-nav-brand">
+      <span class="brand-mark">A</span>
+      <span>Arena<span class="accent">Script</span></span>
+    </a>
+    <nav class="site-nav-links" id="site-nav-links" aria-label="Main">
+      <a href="index.html" class="site-nav-link">Home</a>
+      <a href="learn.html" class="site-nav-link active">Learn</a>
+      <a href="community.html" class="site-nav-link">Community</a>
+      <a href="docs/language-reference.md" class="site-nav-link">Docs</a>
+    </nav>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a href="app.html" class="site-nav-cta">Launch App &rarr;</a>
+      <button class="site-nav-mobile-toggle" aria-label="Toggle nav"
+              onclick="document.getElementById('site-nav-links').classList.toggle('open')">&#9776;</button>
+    </div>
+  </header>
+
+  <main>
+    <article class="article">
+      <div class="page-wrap narrow">
+
+        <header class="article-header">
+          <div class="kicker">Getting Started &middot; 10 minute read</div>
+          <h1>Your first ArenaScript robot.</h1>
+          <p class="subtitle">
+            From zero to a working bot in the arena. No prior game-AI knowledge needed &mdash;
+            just basic familiarity with conditionals and assignment.
+          </p>
+        </header>
+
+        <!-- Lesson grid -->
+        <div class="lesson-grid">
+          <a class="lesson-card" href="#chapter-1">
+            <div class="lesson-meta"><span class="pill">Chapter 1</span><span>2 min</span></div>
+            <h4>The shape of a robot</h4>
+            <p>Meta, state, and on-tick. The three things every bot needs.</p>
+          </a>
+          <a class="lesson-card" href="#chapter-2">
+            <div class="lesson-meta"><span class="pill">Chapter 2</span><span>2 min</span></div>
+            <h4>Sensing the world</h4>
+            <p>How your robot "sees" enemies, allies, and arena geometry.</p>
+          </a>
+          <a class="lesson-card" href="#chapter-3">
+            <div class="lesson-meta"><span class="pill">Chapter 3</span><span>3 min</span></div>
+            <h4>Intents &amp; actions</h4>
+            <p>Movement, firing, and how the executor resolves conflicts.</p>
+          </a>
+          <a class="lesson-card" href="#chapter-4">
+            <div class="lesson-meta"><span class="pill">Chapter 4</span><span>3 min</span></div>
+            <h4>Squads &amp; the hive</h4>
+            <p>Coordinating focus-fire with allies through shared state.</p>
+          </a>
+        </div>
+
+        <div class="callout">
+          <div class="ico">i</div>
+          <div class="body">
+            <b>Pro tip.</b> Keep the <a href="app.html" style="color:var(--accent-cyan);">Builder</a>
+            open in another tab. Every snippet below is a working program &mdash; paste it in
+            and hit <em>Compile &amp; Run</em> to see it in action.
+          </div>
+        </div>
+
+        <!-- Chapter 1 -->
+        <h2 id="chapter-1">Chapter 1 &mdash; The shape of a robot</h2>
+        <p>Every ArenaScript program starts with a header. After that, your bot is made of three blocks:
+           <code>meta</code>, optional <code>state</code>, and one or more <code>on &lt;event&gt;</code> handlers.</p>
+
+<pre><code><span class="tok-kw">robot</span> <span class="tok-str">"Hello"</span> <span class="tok-kw">version</span> <span class="tok-str">"1.0"</span>
+
+<span class="tok-kw">meta</span> {
+  author: <span class="tok-str">"you"</span>
+  class:  <span class="tok-str">"brawler"</span>
+}
+
+<span class="tok-kw">on</span> tick {
+  <span class="tok-fn">log</span>(<span class="tok-str">"hello arena"</span>)
+}</code></pre>
+
+        <p class="muted">That's a complete, valid program. It runs once per tick and logs to the console.
+           Try it: open the builder, paste this in, hit <em>Compile</em>, then <em>Run Match</em>.</p>
+
+        <h3>Choosing a class</h3>
+        <p>Your <code>class</code> determines stats and available weapons. Pick one to start:</p>
+        <ul>
+          <li><b>Brawler</b> &mdash; fast, high damage, short range. Aggressive playstyle.</li>
+          <li><b>Ranger</b> &mdash; long-range, fragile. Kite and harass.</li>
+          <li><b>Tank</b> &mdash; high HP, slow. Hold ground.</li>
+          <li><b>Support</b> &mdash; high energy, healing intents. Backline.</li>
+        </ul>
+
+        <!-- Chapter 2 -->
+        <h2 id="chapter-2">Chapter 2 &mdash; Sensing the world</h2>
+        <p>Robots don't have global vision. They see what's in their <em>vision cone</em>, plus
+           whatever the hive has shared. Sensors are the read-only side of that.</p>
+
+<pre><code><span class="tok-kw">on</span> tick {
+  <span class="tok-kw">if</span> <span class="tok-fn">enemy_visible</span>() {
+    <span class="tok-fn">log</span>(<span class="tok-str">"contact: "</span> + target.name)
+  } <span class="tok-kw">else</span> {
+    <span class="tok-fn">log</span>(<span class="tok-str">"all quiet"</span>)
+  }
+}</code></pre>
+
+        <p>Common sensors:</p>
+        <ul>
+          <li><code>enemy_visible()</code> &mdash; boolean, true if at least one enemy is in the cone.</li>
+          <li><code>target</code> &mdash; the current focus target, if any.</li>
+          <li><code>hp</code> &mdash; this bot's current hit points.</li>
+          <li><code>tick</code> &mdash; the current simulation tick (an integer counter).</li>
+        </ul>
+
+        <div class="callout">
+          <div class="ico">!</div>
+          <div class="body">
+            <b>Vision matters.</b> Toggle the <em>Vision</em> overlay in the arena to see exactly
+            what each robot perceives. It's the single best debugging tool.
+          </div>
+        </div>
+
+        <!-- Chapter 3 -->
+        <h2 id="chapter-3">Chapter 3 &mdash; Intents and actions</h2>
+        <p>Sensors read. <em>Intents</em> act. Every tick you can submit one movement intent and one
+           weapon intent &mdash; the executor handles cooldowns and conflicts.</p>
+
+<pre><code><span class="tok-kw">on</span> tick {
+  <span class="tok-kw">if</span> <span class="tok-fn">enemy_in_range</span>(<span class="tok-num">120</span>) {
+    <span class="tok-fn">fire</span>(<span class="tok-str">"plasma"</span>)
+  }
+
+  <span class="tok-kw">if</span> hp &lt; <span class="tok-num">30</span> {
+    <span class="tok-fn">retreat</span>(<span class="tok-num">200</span>)
+  } <span class="tok-kw">else</span> {
+    <span class="tok-fn">advance_on</span>(target)
+  }
+}</code></pre>
+
+        <p>Submitting two conflicting intents in the same tick? The later one wins, but the engine
+           logs a decision-trace entry so you can see it during replay.</p>
+
+        <!-- Chapter 4 -->
+        <h2 id="chapter-4">Chapter 4 &mdash; Squads and the hive</h2>
+        <p>For team play, multiple instances of your bot share a <em>hive</em> &mdash; a tiny shared
+           dictionary that lets allies coordinate. Focus-fire on one target is the canonical use:</p>
+
+<pre><code><span class="tok-kw">on</span> <span class="tok-fn">enemy_spotted</span>(e) {
+  <span class="tok-fn">hive_focus</span>(e)
+}
+
+<span class="tok-kw">on</span> tick {
+  <span class="tok-kw">if</span> hive_target {
+    <span class="tok-fn">advance_on</span>(hive_target)
+    <span class="tok-fn">fire</span>(<span class="tok-str">"plasma"</span>)
+  }
+}</code></pre>
+
+        <p>Now four Brawlers running this script will gang up on whichever enemy is spotted first &mdash;
+           with no hard-coded coordination logic.</p>
+
+        <h2>Where to next?</h2>
+        <p>You now know enough to write a competitive bot. From here:</p>
+        <ul>
+          <li>Read the full <a href="docs/language-reference.md" style="color:var(--accent-cyan);">Language Reference</a> for every keyword, sensor, and intent.</li>
+          <li>Browse the <a href="community.html" style="color:var(--accent-cyan);">Community Gallery</a> for inspiration. Every bot's source is readable.</li>
+          <li>Open the in-app <em>Tier List</em> to see how presets stack up &mdash; then try to beat the S-tier.</li>
+        </ul>
+
+        <div class="cta-band" style="margin-top:48px;">
+          <h2>Ready to write yours?</h2>
+          <p>Open the builder, click any preset to load it, and start tweaking.</p>
+          <div class="cta-band-actions">
+            <a href="app.html" class="btn-primary">Open the Builder &rarr;</a>
+            <a href="community.html" class="btn-secondary">Browse community bots</a>
+          </div>
+        </div>
+
+      </div>
+    </article>
+  </main>
+
+  <footer class="site-footer">
+    <div class="page-wrap">
+      <div class="footer-inner">
+        <div class="brand-mini">
+          <span class="brand-mark" style="width:22px;height:22px;display:inline-grid;place-items:center;border-radius:5px;background:var(--gradient-cyan);color:#001018;font-weight:900;font-size:11px;">A</span>
+          <b>ARENASCRIPT</b>
+          <span>&middot; v0.2.0</span>
+        </div>
+        <div class="footer-links">
+          <a href="app.html">Launch app</a>
+          <a href="learn.html">Learn</a>
+          <a href="community.html">Community</a>
+          <a href="docs/language-reference.md">Language reference</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        Built for tinkerers who like to watch their code fight.
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>
