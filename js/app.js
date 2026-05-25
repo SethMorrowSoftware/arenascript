@@ -7448,7 +7448,43 @@ function renderRivals() {
       </div>`;
     return;
   }
-  achRivalsEl.innerHTML = opponents.map((o, i) => {
+
+  // Per-class breakdown — derived from the stats module's totalsByClass.
+  const cls = MatchStats.totals().totalsByClass || {};
+  const classOrder = ["brawler", "ranger", "tank", "support"];
+  const classMeta = {
+    brawler: { label: "Brawler", icon: "B" },
+    ranger:  { label: "Ranger",  icon: "R" },
+    tank:    { label: "Tank",    icon: "T" },
+    support: { label: "Support", icon: "S" },
+  };
+  const classCards = classOrder.map((c) => {
+    const row = cls[c] || { wins: 0, losses: 0 };
+    const total = (row.wins | 0) + (row.losses | 0);
+    const winPct = total > 0 ? Math.round((row.wins / total) * 100) : 0;
+    const tone = total === 0 ? "rival-empty"
+              : row.wins > row.losses ? "rival-positive"
+              : row.losses > row.wins ? "rival-negative" : "rival-even";
+    const winRateLabel = total > 0 ? `${winPct}%` : "—";
+    return `
+      <div class="class-card ${tone}">
+        <div class="class-card-head">
+          <span class="class-icon ${c}">${classMeta[c].icon}</span>
+          <span class="class-name">${classMeta[c].label}</span>
+        </div>
+        <div class="class-winrate">${winRateLabel}</div>
+        <div class="class-card-bar">
+          <div class="class-bar-fill" style="width:${winPct}%"></div>
+        </div>
+        <div class="class-card-sub">${row.wins | 0}W · ${row.losses | 0}L</div>
+      </div>`;
+  }).join("");
+  const classGrid = `
+    <div class="class-breakdown">
+      <h4 class="class-breakdown-title">Win rate by class</h4>
+      <div class="class-grid">${classCards}</div>
+    </div>`;
+  const rowsHtml = opponents.map((o, i) => {
     const entry = getBotEntry(o.botKey);
     if (!entry) return "";
     const total = o.wins + o.losses + o.draws;
@@ -7475,6 +7511,7 @@ function renderRivals() {
         </div>
       </div>`;
   }).join("");
+  achRivalsEl.innerHTML = classGrid + `<h4 class="class-breakdown-title rivals-list-title">Most-played opponents</h4>` + rowsHtml;
 }
 
 // Tab switching for the achievements modal.
