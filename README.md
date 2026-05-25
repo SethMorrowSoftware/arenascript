@@ -107,7 +107,10 @@ No build tools, no bundlers, no package managers needed.
 
 ```
 arenascript/
-├── index.html              # Single-page application
+├── index.html              # Landing / marketing front page
+├── app.html                # Single-page app (builder, arena, library, ...)
+├── learn.html              # Step-by-step ArenaScript tutorial
+├── community.html          # Public bot gallery (standalone page)
 ├── css/
 │   └── style.css           # Dark theme UI stylesheet
 ├── js/

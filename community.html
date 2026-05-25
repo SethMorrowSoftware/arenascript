@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Community Bots — ArenaScript</title>
+  <meta name="description" content="Browse the public ArenaScript community gallery. Install community-submitted robots into your library with one click.">
+  <link rel="stylesheet" href="css/design.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>&#x1F916;</text></svg>">
+</head>
+<body class="page-marketing">
+
+  <header class="site-nav" role="banner">
+    <a href="index.html" class="site-nav-brand">
+      <span class="brand-mark">A</span>
+      <span>Arena<span class="accent">Script</span></span>
+    </a>
+    <nav class="site-nav-links" id="site-nav-links" aria-label="Main">
+      <a href="index.html" class="site-nav-link">Home</a>
+      <a href="learn.html" class="site-nav-link">Learn</a>
+      <a href="community.html" class="site-nav-link active">Community</a>
+      <a href="docs/language-reference.md" class="site-nav-link">Docs</a>
+    </nav>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <a href="app.html" class="site-nav-cta">Launch App &rarr;</a>
+      <button class="site-nav-mobile-toggle" aria-label="Toggle nav"
+              onclick="document.getElementById('site-nav-links').classList.toggle('open')">&#9776;</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="article" style="padding-top:48px;">
+      <div class="page-wrap">
+
+        <header class="article-header" style="text-align:left;margin-bottom:8px;">
+          <div class="kicker">Community Gallery</div>
+          <h1 style="font-size:clamp(28px,4vw,40px);">Bots shared by the community.</h1>
+          <p class="subtitle" style="margin-left:0;text-align:left;max-width:680px;">
+            Every bot below was published by a player. Open one to read its source,
+            then click <em>Install &amp; Open in Builder</em> to drop it into your library.
+          </p>
+        </header>
+
+        <div class="community-toolbar" role="search">
+          <input id="cg-search" type="text" placeholder="Search by bot or author..." autocomplete="off" spellcheck="false">
+          <select id="cg-sort">
+            <option value="recent" selected>Most recent</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">Name (A&ndash;Z)</option>
+          </select>
+          <span class="count" id="cg-count">&mdash;</span>
+        </div>
+
+        <div id="cg-grid" class="bot-grid"></div>
+
+        <div id="cg-state-loading" class="community-loading">Loading community bots&hellip;</div>
+
+        <div id="cg-state-empty" class="community-empty" hidden>
+          <div class="ico">&#127758;</div>
+          <h3>No public bots yet</h3>
+          <p>Be the first &mdash; <a href="app.html" style="color:var(--accent-cyan);">open the builder</a>,
+             save a bot, and click <em>Share</em> in your library.</p>
+        </div>
+
+        <div id="cg-state-error" class="community-empty" hidden>
+          <div class="ico">!</div>
+          <h3>Couldn't load community bots</h3>
+          <p id="cg-error-msg">Network error.</p>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="page-wrap">
+      <div class="footer-inner">
+        <div class="brand-mini">
+          <span class="brand-mark" style="width:22px;height:22px;display:inline-grid;place-items:center;border-radius:5px;background:var(--gradient-cyan);color:#001018;font-weight:900;font-size:11px;">A</span>
+          <b>ARENASCRIPT</b>
+          <span>&middot; v0.2.0</span>
+        </div>
+        <div class="footer-links">
+          <a href="app.html">Launch app</a>
+          <a href="learn.html">Learn</a>
+          <a href="community.html">Community</a>
+          <a href="docs/language-reference.md">Language reference</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        Built for tinkerers who like to watch their code fight.
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      const API_BASE = "api/v1";
+      const grid    = document.getElementById("cg-grid");
+      const search  = document.getElementById("cg-search");
+      const sortSel = document.getElementById("cg-sort");
+      const count   = document.getElementById("cg-count");
+      const sLoad   = document.getElementById("cg-state-loading");
+      const sEmpty  = document.getElementById("cg-state-empty");
+      const sErr    = document.getElementById("cg-state-error");
+      const sErrMsg = document.getElementById("cg-error-msg");
+
+      function inferClass(src) {
+        if (typeof src !== "string") return "ranger";
+        const m = src.match(/class\s*:\s*"(brawler|ranger|tank|support)"/i);
+        return (m && m[1].toLowerCase()) || "ranger";
+      }
+
+      function inferAuthorFromSource(src) {
+        if (typeof src !== "string") return null;
+        const m = src.match(/author\s*:\s*"([^"]+)"/);
+        return m ? m[1] : null;
+      }
+
+      function timeAgo(ts) {
+        if (!ts) return "";
+        const t = typeof ts === "string" ? Date.parse(ts) : ts;
+        if (Number.isNaN(t)) return "";
+        const s = Math.max(1, Math.floor((Date.now() - t) / 1000));
+        if (s < 60)        return s + "s ago";
+        if (s < 3600)      return Math.floor(s / 60) + "m ago";
+        if (s < 86400)     return Math.floor(s / 3600) + "h ago";
+        if (s < 86400*30)  return Math.floor(s / 86400) + "d ago";
+        return new Date(t).toLocaleDateString();
+      }
+
+      function escapeHtml(s) {
+        return String(s == null ? "" : s)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      }
+
+      function avatarLetter(name) {
+        const ch = (name || "?").trim().charAt(0).toUpperCase();
+        return ch || "?";
+      }
+
+      function renderBots(bots) {
+        if (!bots.length) {
+          grid.innerHTML = "";
+          sEmpty.hidden = false;
+          return;
+        }
+        sEmpty.hidden = true;
+
+        const html = bots.map((bot) => {
+          const cls = inferClass(bot.source_code);
+          const author = bot.author_username || inferAuthorFromSource(bot.source_code) || "anonymous";
+          const updated = bot.updated_at || bot.version_created_at || bot.created_at;
+          const desc = (bot.source_code || "")
+            .split("\n")
+            .map(l => l.trim())
+            .find(l => l.startsWith("//"))
+            ?.replace(/^\/\/\s*/, "") || `A ${cls} bot.`;
+
+          return `
+            <a class="bot-card cls-${cls}" href="app.html" data-id="${escapeHtml(bot.id)}" title="Open ArenaScript to install this bot">
+              <div class="top">
+                <div class="avatar">${escapeHtml(avatarLetter(bot.name))}</div>
+                <div class="meta">
+                  <div class="name">${escapeHtml(bot.name || "Untitled")}</div>
+                  <div class="author">by ${escapeHtml(author)}</div>
+                </div>
+              </div>
+              <div class="desc">${escapeHtml(desc)}</div>
+              <div class="row">
+                <div class="badges">
+                  <span class="badge">${escapeHtml(cls)}</span>
+                  ${bot.version_label ? `<span class="badge">v${escapeHtml(bot.version_label)}</span>` : ""}
+                </div>
+                <span>${escapeHtml(timeAgo(updated))}</span>
+              </div>
+            </a>`;
+        }).join("");
+
+        grid.innerHTML = html;
+      }
+
+      let _req = 0;
+      async function load() {
+        sErr.hidden = true;
+        sEmpty.hidden = true;
+        sLoad.hidden = false;
+        const q    = search.value.trim();
+        const sort = sortSel.value || "recent";
+        const params = new URLSearchParams({ sort, limit: "60" });
+        if (q) params.set("q", q);
+
+        const myReq = ++_req;
+        try {
+          const res = await fetch(`${API_BASE}/bots/community.php?${params.toString()}`, {
+            method: "GET",
+            credentials: "same-origin",
+          });
+          if (myReq !== _req) return;
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          const data = await res.json();
+          const bots = Array.isArray(data?.bots) ? data.bots : [];
+          count.textContent = `${data.total ?? bots.length} bot${bots.length === 1 ? "" : "s"}`;
+          renderBots(bots);
+        } catch (err) {
+          if (myReq !== _req) return;
+          sErrMsg.textContent = err?.message || "Network error.";
+          sErr.hidden = false;
+          grid.innerHTML = "";
+        } finally {
+          if (myReq === _req) sLoad.hidden = true;
+        }
+      }
+
+      let _searchDebounce = null;
+      search.addEventListener("input", () => {
+        clearTimeout(_searchDebounce);
+        _searchDebounce = setTimeout(load, 220);
+      });
+      sortSel.addEventListener("change", load);
+
+      load();
+    })();
+  </script>
+
+</body>
+</html>
