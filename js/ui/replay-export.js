@@ -47,27 +47,36 @@ export async function exportReplay({ canvas, frames, drawFrame, speed = 1.5, bit
   // wall-clock cadence so the captured video has a consistent framerate.
   recorder.start();
 
-  const frameInterval = (1000 / TARGET_FPS) / Math.max(0.25, speed);
-  let lastTimestamp = 0;
-  for (let i = 0; i < frames.length; i++) {
-    const prev = i > 0 ? frames[i - 1] : null;
-    drawFrame(frames[i], prev, i, frames.length);
-    if (onProgress) onProgress(i + 1, frames.length);
-    if (lastTimestamp) {
-      const now = performance.now();
-      const elapsed = now - lastTimestamp;
-      const wait = Math.max(0, frameInterval - elapsed);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-    } else {
-      await new Promise((r) => setTimeout(r, frameInterval));
+  try {
+    const frameInterval = (1000 / TARGET_FPS) / Math.max(0.25, speed);
+    let lastTimestamp = 0;
+    for (let i = 0; i < frames.length; i++) {
+      const prev = i > 0 ? frames[i - 1] : null;
+      drawFrame(frames[i], prev, i, frames.length);
+      if (typeof onProgress === "function") onProgress(i + 1, frames.length);
+      if (lastTimestamp) {
+        const now = performance.now();
+        const elapsed = now - lastTimestamp;
+        const wait = Math.max(0, frameInterval - elapsed);
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      } else {
+        await new Promise((r) => setTimeout(r, frameInterval));
+      }
+      lastTimestamp = performance.now();
     }
-    lastTimestamp = performance.now();
+
+    // Allow one final frame to flush before stopping.
+    await new Promise((r) => setTimeout(r, 100));
+  } finally {
+    if (recorder.state !== "inactive") {
+      recorder.stop();
+    }
   }
 
-  // Allow one final frame to flush before stopping.
-  await new Promise((r) => setTimeout(r, 100));
-  recorder.stop();
   await stopped;
+  for (const track of stream.getTracks()) {
+    track.stop();
+  }
 
   const type = recorder.mimeType || "video/webm";
   return new Blob(chunks, { type });
