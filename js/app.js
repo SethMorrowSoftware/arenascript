@@ -5306,6 +5306,19 @@ function botIconLetter(key) {
   return (entry.name?.charAt(0) || "U").toUpperCase();
 }
 
+/**
+ * Render the contents of an icon swatch — either an <img> if the bot has
+ * an uploaded avatar, or the fallback class letter. Callers wrap this in
+ * a class-colored container (.bot-class-icon / .tm-icon / .bp-card-icon).
+ */
+function botIconInner(key) {
+  const entry = getBotEntry(key);
+  if (entry?.avatar) {
+    return `<img class="bot-avatar-img" src="${escapeHtml(entry.avatar)}" alt="">`;
+  }
+  return escapeHtml(botIconLetter(key));
+}
+
 function tbGetBotClass(key) {
   return getBotEntry(key)?.class ?? "brawler";
 }
@@ -5363,7 +5376,7 @@ function tbRenderCardContent(card, botKey) {
   card.dataset.botKey = botKey;
   card.classList.toggle("tb-card-you", !!entry?.isEditor);
   card.innerHTML = `
-    <div class="tb-card-icon ${safeCls}">${escapeHtml(botIconLetter(botKey))}</div>
+    <div class="tb-card-icon ${safeCls}">${botIconInner(botKey)}</div>
     <div class="tb-card-body">
       <span class="tb-card-name">${escapeHtml(tbDisplayName(botKey, entry))}</span>
       <span class="tb-card-meta">
@@ -5879,7 +5892,7 @@ function bpRenderCard({ key, source }) {
   return `
     <button class="bp-card" type="button" role="option" data-bot-key="${escapeHtml(key)}">
       <div class="bp-card-head">
-        <div class="bp-card-icon ${safeCls}">${escapeHtml(botIconLetter(key))}</div>
+        <div class="bp-card-icon ${safeCls}">${botIconInner(key)}</div>
         <div class="bp-card-title">
           <span class="bp-card-name">${escapeHtml(tbDisplayName(key, entry))}</span>
           <span class="bp-card-sub">${safeCls} · ${escapeHtml(role)}</span>
@@ -6064,7 +6077,7 @@ function getBotEntry(key) {
   if (typeof key === "string" && key.startsWith("user_")) {
     const bot = BotLibrary.getById(key);
     if (!bot) return null;
-    return { name: bot.name, class: bot.class, source: bot.source, isUser: true, id: bot.id };
+    return { name: bot.name, class: bot.class, source: bot.source, isUser: true, id: bot.id, avatar: bot.avatar ?? null };
   }
   const preset = BOT_PRESETS[key];
   if (!preset) return null;
@@ -6811,9 +6824,12 @@ function renderLibrary() {
       : shared.visibility === "public"
       ? "Hide this bot from the community list"
       : "Publish this bot to the community list";
+    const avatarHtml = bot.avatar
+      ? `<img class="bot-avatar-img-large" src="${escapeHtml(bot.avatar)}" alt="">`
+      : classIconLetter(bot.class);
     card.innerHTML = `
       <div class="bot-card-header">
-        <div class="bot-class-icon ${bot.class}">${classIconLetter(bot.class)}</div>
+        <button class="bot-class-icon ${bot.class} bot-avatar-btn" data-act="avatar" title="Click to set an avatar">${avatarHtml}</button>
         <div class="bot-card-title">
           <div class="bot-card-name" title="${escapeHtml(bot.name)}">${escapeHtml(bot.name)}</div>
           <div class="bot-card-meta">${bot.class}${bot.author ? " • " + escapeHtml(bot.author) : ""}</div>
@@ -6863,9 +6879,48 @@ function renderLibrary() {
         toast(`Deleted "${bot.name}".`, "info");
       }
     });
+    card.querySelector('[data-act="avatar"]').addEventListener("click", () => {
+      pickAvatarForBot(bot);
+    });
 
     libraryGridEl.appendChild(card);
   }
+}
+
+/**
+ * Pop an image file picker for the given library bot, downscale to 64x64,
+ * persist via BotLibrary.setAvatar(), and refresh visible cards.
+ * Right-click / shift-click clears the avatar.
+ */
+function pickAvatarForBot(bot) {
+  if (window.event && (window.event.shiftKey || window.event.altKey)) {
+    if (BotLibrary.setAvatar(bot.id, null)) {
+      toast(`Avatar cleared for "${bot.name}".`, "info");
+      renderLibrary();
+      renderSidebarUserBots();
+    }
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await BotLibrary.resizeImageFileToAvatar(file, { size: 64 });
+      if (!BotLibrary.setAvatar(bot.id, dataUrl)) {
+        toast("Avatar rejected — image too large or invalid.", "error");
+        return;
+      }
+      toast(`Avatar updated for "${bot.name}". Shift-click to clear.`, "success");
+      renderLibrary();
+      renderSidebarUserBots();
+    } catch (e) {
+      toast(`Avatar failed: ${e.message ?? String(e)}`, "error");
+    }
+  });
+  input.click();
 }
 
 function renderSidebarUserBots() {
@@ -6886,7 +6941,7 @@ function renderSidebarUserBots() {
     el.dataset.bot = bot.id;
     el.title = `${bot.name} — ${bot.class}`;
     el.innerHTML = `
-      <div class="bot-class-icon ${bot.class}">${classIconLetter(bot.class)}</div>
+      <div class="bot-class-icon ${bot.class}">${botIconInner(bot.id)}</div>
       <div class="bot-preset-info">
         <span class="bot-preset-name">${escapeHtml(bot.name)}</span>
         <span class="bot-preset-class">${bot.class}</span>
@@ -7562,7 +7617,7 @@ function renderRivals() {
     return `
       <div class="rival-row ${tone}">
         <span class="rival-rank">#${i + 1}</span>
-        <span class="rival-icon ${escapeHtml(entry.class)}">${escapeHtml(botIconLetter(o.botKey))}</span>
+        <span class="rival-icon ${escapeHtml(entry.class)}">${botIconInner(o.botKey)}</span>
         <div class="rival-body">
           <div class="rival-name">${escapeHtml(entry.name)}<span class="rival-cls"> · ${escapeHtml(entry.class)}</span></div>
           <div class="rival-bar">
@@ -7774,7 +7829,7 @@ function renderTournamentView() {
     card.className = "tourn-roster-card";
     card.innerHTML = `
       <span class="seed">#${i + 1}</span>
-      <span class="icon ${escapeHtml(p.class)}">${escapeHtml(botIconLetter(p.key))}</span>
+      <span class="icon ${escapeHtml(p.class)}">${botIconInner(p.key)}</span>
       <span class="name">${escapeHtml(p.name)}</span>
       ${p.isYou ? `<span class="you">YOU</span>` : ""}`;
     tournRosterGridEl.appendChild(card);
@@ -7884,7 +7939,7 @@ function renderBracket() {
         return `
           <div class="tm-slot ${cls}">
             <span class="tm-seed">#${p.seed}</span>
-            <span class="tm-icon ${escapeHtml(p.class)}">${escapeHtml(botIconLetter(p.key))}</span>
+            <span class="tm-icon ${escapeHtml(p.class)}">${botIconInner(p.key)}</span>
             <span class="tm-name">${escapeHtml(p.name)}${p.isYou ? `<span class="you-tag">YOU</span>` : ""}</span>
           </div>`;
       };
