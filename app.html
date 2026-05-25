@@ -12,62 +12,159 @@
   <!-- Top Bar -->
   <header class="top-bar">
     <div class="top-bar-left">
-      <a href="index.html" class="brand-link" title="Back to home">
-        <h1>ARENA<span>SCRIPT</span></h1>
-      </a>
-      <nav class="view-tabs" role="tablist" aria-label="Main views">
-        <button class="view-tab active" data-view="builder" role="tab" aria-selected="true">
-          <span class="tab-icon">&#9998;</span> Builder
-        </button>
-        <button class="view-tab" data-view="arena" role="tab" aria-selected="false">
-          <span class="tab-icon">&#9876;</span> Arena
-        </button>
-        <button class="view-tab" data-view="library" role="tab" aria-selected="false">
-          <span class="tab-icon">&#128218;</span> My Bots
-          <span class="tab-count" id="tab-count-library">0</span>
-        </button>
-        <button class="view-tab" data-view="community" role="tab" aria-selected="false">
-          <span class="tab-icon">&#127758;</span> Community
-        </button>
-        <button class="view-tab" data-view="tournament" role="tab" aria-selected="false">
-          <span class="tab-icon">&#127942;</span> Tournament
-        </button>
-        <button class="view-tab" data-view="tierlist" role="tab" aria-selected="false">
-          <span class="tab-icon">&#128202;</span> Tier List
-        </button>
-      </nav>
+      <div class="view-breadcrumb">
+        <span class="bc-current" id="current-view-label">Builder</span>
+        <span class="bc-sub" id="current-view-sub" hidden></span>
+      </div>
     </div>
+
     <div class="top-bar-actions">
-      <button id="btn-open-palette" class="btn btn-ghost" title="Command palette (Ctrl+K)">
-        <span class="kbd-inline">Ctrl</span><span class="kbd-inline">K</span> Commands
+      <button id="btn-quick-battle" class="btn-primary-mini" title="Pick robots and fight — no code required">
+        <span class="qb-icon" aria-hidden="true">&#9876;</span>
+        <span>Quick Battle</span>
       </button>
-      <button id="btn-open-lang-ref" class="btn btn-ghost" title="Language reference (Ctrl+/)">
-        Docs
+
+      <button id="btn-open-palette" class="btn-icon btn-icon-search" title="Command palette (Ctrl+K)" aria-label="Search commands">
+        <span class="bi-glyph" aria-hidden="true">&#9906;</span>
+        <span class="kbd-mini" aria-hidden="true">Ctrl K</span>
       </button>
-      <button id="btn-open-tour" class="btn btn-ghost" title="Re-open the onboarding tour">
-        Tour
-      </button>
-      <button id="btn-quick-battle" class="btn btn-quick-battle" title="Pick robots and fight — no code required">
-        <span aria-hidden="true">&#9876;</span> Quick Battle
-      </button>
-      <button id="btn-sfx-toggle" class="btn btn-ghost btn-sfx" title="Toggle sound effects" aria-label="Toggle sound effects">
-        <span class="sfx-icon" aria-hidden="true">&#128266;</span>
-      </button>
-      <button id="btn-achievements" class="btn btn-ghost btn-achievements" title="View achievements" aria-label="Achievements">
-        <span aria-hidden="true">&#127942;</span>
-        <span id="ach-pill" class="ach-pill">0/0</span>
-      </button>
-      <span id="auth-status" class="shortcut-hint">Guest</span>
-      <button id="btn-auth-open" class="btn btn-compile">Sign In</button>
-      <button id="btn-auth-logout" class="btn btn-save" hidden>Sign Out</button>
-      <button id="btn-sync-cloud" class="btn btn-run" hidden>Sync Cloud Bots</button>
-      <span class="version-badge" id="version-badge">v0.2.0 · Lang 1.1</span>
+
+      <div class="popover-wrap" data-popover="help">
+        <button class="btn-icon" data-popover-trigger="help" title="Help &amp; learn" aria-label="Help" aria-haspopup="true" aria-expanded="false">
+          <span aria-hidden="true">?</span>
+        </button>
+        <div class="popover" data-popover-panel="help" hidden role="menu" aria-label="Help">
+          <div class="popover-section-label">Help &amp; learn</div>
+          <button id="btn-open-lang-ref" class="popover-item" role="menuitem">
+            <span class="pi-icon">&#128214;</span>
+            <span class="pi-body"><b>Language reference</b><em>Ctrl + /</em></span>
+          </button>
+          <a href="learn.html" class="popover-item" role="menuitem">
+            <span class="pi-icon">&#127891;</span>
+            <span class="pi-body"><b>Tutorial</b><em>Open the walkthrough</em></span>
+          </a>
+          <button id="btn-open-tour" class="popover-item" role="menuitem">
+            <span class="pi-icon">&#129517;</span>
+            <span class="pi-body"><b>Replay product tour</b><em>For first-timers</em></span>
+          </button>
+          <div class="popover-divider"></div>
+          <div class="popover-section-label">Reference</div>
+          <button id="btn-open-shortcuts" class="popover-item" role="menuitem">
+            <span class="pi-icon">&#9000;</span>
+            <span class="pi-body"><b>Keyboard shortcuts</b><em>Shift + ?</em></span>
+          </button>
+          <a href="community.html" class="popover-item" role="menuitem">
+            <span class="pi-icon">&#127758;</span>
+            <span class="pi-body"><b>Community gallery</b><em>Public bots</em></span>
+          </a>
+          <a href="index.html" class="popover-item" role="menuitem">
+            <span class="pi-icon">&#127968;</span>
+            <span class="pi-body"><b>Back to home</b></span>
+          </a>
+          <div class="popover-footer">
+            <span class="version-badge" id="version-badge">v0.2.0 &middot; Lang 1.1</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="popover-wrap" data-popover="account">
+        <button class="account-pill" data-popover-trigger="account" aria-haspopup="true" aria-expanded="false" title="Account">
+          <span class="avatar-circle" id="auth-avatar">G</span>
+          <span id="auth-status" class="avatar-name">Guest</span>
+          <span class="avatar-chev" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="popover popover-account" data-popover-panel="account" hidden role="menu" aria-label="Account">
+          <div class="popover-account-header">
+            <div class="avatar-circle lg" id="auth-avatar-lg">G</div>
+            <div class="popover-account-meta">
+              <div class="aa-name" id="auth-name-lg">Guest</div>
+              <div class="aa-sub" id="auth-sub-lg">Not signed in &middot; bots saved locally</div>
+            </div>
+          </div>
+          <button id="btn-auth-open" class="popover-item popover-item-primary" role="menuitem">
+            <span class="pi-icon">&rarr;</span>
+            <span class="pi-body"><b>Sign in or create account</b><em>Sync bots to the cloud</em></span>
+          </button>
+          <button id="btn-sync-cloud" class="popover-item" hidden role="menuitem">
+            <span class="pi-icon">&#9729;</span>
+            <span class="pi-body"><b>Sync cloud bots</b><em>Pull latest from your account</em></span>
+          </button>
+          <button id="btn-auth-logout" class="popover-item" hidden role="menuitem">
+            <span class="pi-icon">&#9099;</span>
+            <span class="pi-body"><b>Sign out</b></span>
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 
   <!-- App Layout -->
   <div class="app-layout">
 
+    <!-- Primary Navigation Rail -->
+    <nav class="nav-rail" role="navigation" aria-label="Primary navigation">
+      <a href="index.html" class="rail-brand" title="ArenaScript home" aria-label="Home">
+        <span class="rail-brand-mark">A</span>
+        <span class="rail-brand-text">SCRIPT</span>
+      </a>
+
+      <div class="rail-group" role="tablist" aria-label="Create">
+        <div class="rail-group-label">Create</div>
+        <button class="rail-item view-tab active" data-view="builder" data-view-label="Builder"
+                role="tab" aria-selected="true" title="Builder — write your bot's logic">
+          <span class="rail-icon" aria-hidden="true">&#9998;</span>
+          <span class="rail-text">Builder</span>
+        </button>
+        <button class="rail-item view-tab" data-view="library" data-view-label="My Bots"
+                role="tab" aria-selected="false" title="My Bots — your library">
+          <span class="rail-icon" aria-hidden="true">&#128218;</span>
+          <span class="rail-text">My Bots</span>
+          <span class="rail-count tab-count" id="tab-count-library">0</span>
+        </button>
+      </div>
+
+      <div class="rail-divider" aria-hidden="true"></div>
+
+      <div class="rail-group" role="tablist" aria-label="Play">
+        <div class="rail-group-label">Play</div>
+        <button class="rail-item view-tab" data-view="arena" data-view-label="Arena"
+                role="tab" aria-selected="false" title="Arena — live match">
+          <span class="rail-icon" aria-hidden="true">&#9876;</span>
+          <span class="rail-text">Arena</span>
+        </button>
+        <button class="rail-item view-tab" data-view="community" data-view-label="Community"
+                role="tab" aria-selected="false" title="Community — public bots">
+          <span class="rail-icon" aria-hidden="true">&#127758;</span>
+          <span class="rail-text">Community</span>
+        </button>
+        <button class="rail-item view-tab" data-view="tournament" data-view-label="Tournament"
+                role="tab" aria-selected="false" title="Tournament — single-elimination bracket">
+          <span class="rail-icon" aria-hidden="true">&#127942;</span>
+          <span class="rail-text">Tournament</span>
+        </button>
+        <button class="rail-item view-tab" data-view="tierlist" data-view-label="Tier List"
+                role="tab" aria-selected="false" title="Tier List — S through D rankings">
+          <span class="rail-icon" aria-hidden="true">&#128202;</span>
+          <span class="rail-text">Tier List</span>
+        </button>
+      </div>
+
+      <div class="rail-spacer" aria-hidden="true"></div>
+
+      <div class="rail-group rail-group-utility">
+        <button id="btn-sfx-toggle" class="rail-item rail-util btn-sfx"
+                title="Toggle sound effects" aria-label="Toggle sound effects">
+          <span class="rail-icon sfx-icon" aria-hidden="true">&#128266;</span>
+          <span class="rail-text">Sound</span>
+        </button>
+        <button id="btn-achievements" class="rail-item rail-util btn-achievements"
+                title="View achievements" aria-label="Achievements">
+          <span class="rail-icon" aria-hidden="true">&#127942;</span>
+          <span class="rail-text">Achievements</span>
+          <span id="ach-pill" class="ach-pill rail-pill">0/0</span>
+        </button>
+      </div>
+    </nav>
     <!-- Sidebar: contextual to active view -->
     <aside class="sidebar">
 
@@ -1002,5 +1099,97 @@
   </div>
 
   <script type="module" src="js/app.js"></script>
+
+  <!-- App shell helpers: popover toggling + breadcrumb sync.
+       Kept inline so it has no module ordering issues with app.js. -->
+  <script>
+  (function () {
+    "use strict";
+
+    // ----- View breadcrumb -----
+    const bcEl = document.getElementById("current-view-label");
+
+    function syncBreadcrumb() {
+      const active = document.querySelector(".view-tab.active");
+      if (active && bcEl) {
+        bcEl.textContent = active.dataset.viewLabel || active.dataset.view || "";
+      }
+    }
+
+    document.querySelectorAll(".view-tab").forEach((tab) => {
+      const obs = new MutationObserver(syncBreadcrumb);
+      obs.observe(tab, { attributes: true, attributeFilter: ["class"] });
+    });
+    syncBreadcrumb();
+
+    // ----- Popovers (Help / Account) -----
+    const wraps = document.querySelectorAll(".popover-wrap");
+
+    function closeAll(except) {
+      wraps.forEach((w) => {
+        if (w === except) return;
+        const trigger = w.querySelector("[data-popover-trigger]");
+        const panel   = w.querySelector("[data-popover-panel]");
+        if (panel && !panel.hasAttribute("hidden")) panel.setAttribute("hidden", "");
+        if (trigger) trigger.setAttribute("aria-expanded", "false");
+      });
+    }
+
+    wraps.forEach((wrap) => {
+      const trigger = wrap.querySelector("[data-popover-trigger]");
+      const panel   = wrap.querySelector("[data-popover-panel]");
+      if (!trigger || !panel) return;
+
+      trigger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isOpen = !panel.hasAttribute("hidden");
+        closeAll(isOpen ? null : wrap);
+        if (isOpen) {
+          panel.setAttribute("hidden", "");
+          trigger.setAttribute("aria-expanded", "false");
+        } else {
+          // Sync account popover content from the canonical auth-status element.
+          if (wrap.dataset.popover === "account") {
+            const status = document.getElementById("auth-status");
+            const name = (status?.textContent || "Guest").trim();
+            const signedIn = name && name !== "Guest" && name !== "Loading...";
+            const setText = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+            setText("auth-name-lg", name || "Guest");
+            setText("auth-sub-lg", signedIn ? "Signed in" : "Not signed in · bots saved locally");
+            const initial = (name.charAt(0) || "G").toUpperCase();
+            setText("auth-avatar", initial);
+            setText("auth-avatar-lg", initial);
+          }
+          panel.removeAttribute("hidden");
+          trigger.setAttribute("aria-expanded", "true");
+        }
+      });
+    });
+
+    // Click outside / Escape to close
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".popover-wrap")) closeAll(null);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeAll(null);
+    });
+
+    // Auto-close when a popover item is activated (so the underlying app.js
+    // handler runs, then the menu dismisses itself).
+    document.querySelectorAll(".popover-item").forEach((item) => {
+      item.addEventListener("click", () => setTimeout(() => closeAll(null), 0));
+    });
+
+    // The "Keyboard shortcuts" item in the Help popover routes to the
+    // existing shortcut-help modal (Shift+? handler in app.js).
+    const sc = document.getElementById("btn-open-shortcuts");
+    if (sc) {
+      sc.addEventListener("click", () => {
+        const modal = document.getElementById("shortcut-help");
+        if (modal) modal.hidden = false;
+      });
+    }
+  })();
+  </script>
 </body>
 </html>
