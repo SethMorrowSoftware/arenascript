@@ -569,104 +569,113 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   max-height: 100%;
 }
 
+
 /* ============================================================================
-   App Shell v2 — Nav Rail + Slim Top Bar + Popovers
+   App Shell v3 — Polished
+   Icon-only nav rail with hover-flyout labels, slim top bar, popovers.
+   Uses inline SVG icons via <use href="#i-…"/>.
    ============================================================================ */
 
-/* ---- App layout now uses 3 columns: rail | sidebar | main ---- */
+/* ---- SVG icon sizing tokens ---- */
+
+.icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  stroke: currentColor;
+  fill: none;
+}
+.icon-sm { width: 16px; height: 16px; }
+.icon-xs { width: 12px; height: 12px; }
+
+/* ---- 3-column layout: rail | sidebar | main ---- */
 
 .app-layout {
   display: grid;
-  grid-template-columns: 64px 210px 1fr;
+  grid-template-columns: 60px 210px 1fr;
+  grid-template-rows: 1fr;
   height: calc(100vh - 48px);
+  min-height: 0;
+  overflow: hidden;
 }
 
-/* ---- Primary Navigation Rail ---- */
+/* Grid-column children must clamp their own height so a tall editor in
+   .main-content doesn't blow up the implicit row and push the rail's
+   utility group off-screen. */
+.app-layout > .nav-rail,
+.app-layout > .sidebar,
+.app-layout > .main-content {
+  min-height: 0;
+  height: 100%;
+}
+
+/* The rail needs visible overflow so hover-flyout labels can extend past
+   its right edge; vertical containment is enforced by height: 100%. */
+.app-layout > .nav-rail   { overflow: visible; }
+.app-layout > .sidebar    { overflow-y: auto; overflow-x: hidden; }
+.app-layout > .main-content { overflow: hidden; }
+
+/* ============================================================================
+   Navigation Rail
+   ============================================================================ */
 
 .nav-rail {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
-  padding: 8px 0 10px;
-  overflow: hidden;
-  position: relative;
-}
-
-.nav-rail::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: 1px;
-  background: linear-gradient(180deg, transparent, rgba(0, 212, 255, 0.18), transparent);
+  padding: 10px 0 12px;
+  z-index: 30;
 }
 
 .rail-brand {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1px;
-  margin-bottom: 12px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 14px;
   text-decoration: none;
-  color: var(--text-muted);
-  border-radius: var(--radius);
-  padding: 6px 8px 4px;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  border-radius: 10px;
+  transition: transform var(--transition-fast);
 }
 
-.rail-brand:hover {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-}
+.rail-brand:hover { transform: scale(1.05); }
 
 .rail-brand-mark {
   width: 32px;
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: var(--gradient-cyan);
+  border-radius: 9px;
+  background: linear-gradient(135deg, #00d4ff 0%, #00a8cc 100%);
   color: #001018;
   font-weight: 900;
   font-size: 17px;
-  box-shadow: var(--shadow-glow-cyan);
-}
-
-.rail-brand-text {
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 1.2px;
-  color: var(--text-muted);
+  font-family: var(--font-sans);
+  letter-spacing: -0.5px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 4px 16px rgba(0, 212, 255, 0.25),
+    0 0 0 1px rgba(0, 212, 255, 0.35);
 }
 
 .rail-group {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   width: 100%;
-  padding: 0 6px;
-  gap: 2px;
-}
-
-.rail-group-label {
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 1.3px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  text-align: center;
-  padding: 8px 0 4px;
-  opacity: 0.7;
+  gap: 4px;
+  padding: 0 8px;
 }
 
 .rail-divider {
-  width: 28px;
+  width: 22px;
   height: 1px;
   background: var(--border);
-  margin: 6px auto 2px;
+  margin: 10px auto;
+  opacity: 0.7;
 }
 
 .rail-spacer {
@@ -674,124 +683,171 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   min-height: 8px;
 }
 
-/* Rail item: stacked icon + label */
+/* ---- Rail item: icon-only with flyout label on hover ---- */
+
 .rail-item {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 8px 4px 7px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border: none;
   background: transparent;
-  color: var(--text-secondary);
-  border-radius: var(--radius);
+  color: var(--text-muted);
+  border-radius: 9px;
   cursor: pointer;
   font-family: var(--font-sans);
-  text-align: center;
-  transition: background var(--transition-fast), color var(--transition-fast),
-              transform var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .rail-item:hover {
-  background: var(--bg-elevated);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--text-primary);
 }
 
 .rail-item .rail-icon {
-  font-size: 18px;
-  line-height: 1;
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
   transition: transform var(--transition-fast);
 }
 
-.rail-item:hover .rail-icon {
-  transform: scale(1.08);
-}
-
-.rail-item .rail-text {
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  line-height: 1.2;
-}
+.rail-item:hover .rail-icon { transform: scale(1.06); }
 
 .rail-item.active {
-  background: rgba(0, 212, 255, 0.08);
+  background: rgba(0, 212, 255, 0.10);
   color: var(--accent-cyan);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.18);
 }
 
 .rail-item.active::before {
   content: "";
   position: absolute;
-  left: -6px;
+  left: -8px;
   top: 8px;
   bottom: 8px;
   width: 3px;
   border-radius: 0 3px 3px 0;
   background: var(--accent-cyan);
-  box-shadow: 0 0 10px var(--accent-cyan);
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.5);
 }
 
 .rail-item:focus-visible {
   outline: 2px solid var(--accent-cyan);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
+
+/* Flyout label appears on hover, anchored to the rail item, pointing right. */
+
+.rail-flyout {
+  position: absolute;
+  left: calc(100% + 14px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  white-space: nowrap;
+  background: var(--bg-elevated);
+  color: var(--text-bright);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 110ms ease, transform 110ms ease;
+  z-index: 60;
+}
+
+.rail-flyout::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  width: 7px;
+  height: 7px;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.rail-item:hover .rail-flyout,
+.rail-item:focus-visible .rail-flyout {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+  transition-delay: 80ms;
+}
+
+/* Library count badge: a small numeric dot top-right of the icon */
 
 .rail-count {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 2px;
+  right: 2px;
   min-width: 16px;
-  height: 14px;
+  height: 16px;
   padding: 0 4px;
   font-size: 9px;
-  line-height: 14px;
+  line-height: 16px;
   font-weight: 800;
+  font-family: var(--font-mono);
   border-radius: 8px;
-  background: var(--bg-tertiary);
+  background: var(--bg-primary);
   color: var(--text-muted);
   text-align: center;
+  box-shadow: 0 0 0 2px var(--bg-secondary);
 }
 
 .rail-item.active .rail-count {
   background: var(--accent-cyan);
   color: #001018;
+  box-shadow: 0 0 0 2px var(--bg-secondary);
 }
 
-.rail-pill {
+/* Achievements progress pill: glanceable, below the icon, very small */
+
+.rail-mini-pill {
   position: absolute;
-  bottom: 2px;
-  right: 4px;
+  bottom: -3px;
+  right: -3px;
+  min-width: 22px;
+  height: 13px;
+  padding: 0 4px;
   font-size: 8px;
-  padding: 1px 5px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
+  line-height: 13px;
+  font-weight: 800;
   font-family: var(--font-mono);
-  font-weight: 700;
+  border-radius: 7px;
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  letter-spacing: 0;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--bg-secondary);
 }
 
-.rail-group-utility {
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
-}
+/* ============================================================================
+   Top Bar (slim)
+   ============================================================================ */
 
-/* ---- Slim Top Bar Overrides ---- */
+.top-bar { height: 48px; }
 
 .top-bar-left .view-breadcrumb {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
   padding-left: 4px;
 }
 
 .bc-current {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-bright);
-  letter-spacing: 0.2px;
+  letter-spacing: 0.1px;
+  -webkit-text-fill-color: var(--text-bright);
 }
 
 .bc-sub {
@@ -801,99 +857,133 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
 }
 
 .bc-sub:not([hidden])::before {
-  content: "/ ";
+  content: "·";
   color: var(--text-muted);
-  margin-right: 6px;
+  margin-right: 8px;
+  opacity: 0.6;
 }
 
-/* ---- Slim icon-style buttons in the top bar ---- */
+.top-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- Icon-style top-bar buttons ---- */
 
 .btn-icon {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   height: 32px;
   padding: 0 10px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: 7px;
   color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
   transition: background var(--transition-fast), border-color var(--transition-fast),
               color var(--transition-fast);
 }
 
-.btn-icon:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border);
-  color: var(--text-primary);
-}
-
-.btn-icon.open,
+.btn-icon:hover,
 .btn-icon[aria-expanded="true"] {
   background: var(--bg-elevated);
   border-color: var(--border);
   color: var(--text-primary);
 }
 
-.btn-icon .bi-glyph {
-  font-size: 14px;
+.btn-icon:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 1px;
 }
+
+.btn-icon-square {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+.btn-icon .bi-text {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.btn-icon:hover .bi-text { color: var(--text-secondary); }
 
 .btn-icon .kbd-mini {
   font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 2px 5px;
   border-radius: 4px;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   color: var(--text-muted);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
 }
 
 .btn-icon-search {
-  min-width: 130px;
+  min-width: 220px;
   justify-content: flex-start;
+  padding: 0 8px 0 10px;
+  background: var(--bg-primary);
+  border-color: var(--border);
 }
 
-.btn-icon-search .kbd-mini {
-  margin-left: auto;
+.btn-icon-search:hover { background: var(--bg-elevated); }
+
+.btn-icon-search .bi-text {
+  margin-right: auto;
+  font-size: 12.5px;
 }
 
-/* ---- Quick Battle: re-style as a refined primary CTA ---- */
+/* ---- Quick Battle: refined primary CTA ---- */
 
 .btn-primary-mini {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   height: 32px;
-  padding: 0 16px;
-  border-radius: var(--radius);
+  padding: 0 14px;
+  border-radius: 7px;
   border: none;
-  background: var(--gradient-cyan);
+  background: linear-gradient(180deg, #00e4ff 0%, #00b8e0 100%);
   color: #001018;
   font-family: var(--font-sans);
   font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.3px;
+  font-size: 12.5px;
+  letter-spacing: 0.1px;
   cursor: pointer;
-  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.2), 0 0 18px rgba(0, 212, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(0, 212, 255, 0.25);
   transition: transform var(--transition-fast), box-shadow var(--transition-fast),
               filter var(--transition-fast);
 }
 
 .btn-primary-mini:hover {
   transform: translateY(-1px);
-  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.4), 0 0 28px rgba(0, 212, 255, 0.32);
-  filter: brightness(1.05);
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 4px 12px rgba(0, 212, 255, 0.35),
+    0 0 0 1px rgba(0, 212, 255, 0.45);
 }
 
-.btn-primary-mini .qb-icon {
-  font-size: 14px;
+.btn-primary-mini:active {
+  transform: translateY(0);
+  filter: brightness(0.96);
+}
+
+.btn-primary-mini .icon {
+  fill: #001018;
+  stroke: #001018;
+  stroke-width: 2;
 }
 
 /* ---- Account pill ---- */
@@ -903,22 +993,22 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   align-items: center;
   gap: 8px;
   height: 32px;
-  padding: 0 10px 0 4px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  padding: 0 9px 0 3px;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-pill);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
 
 .account-pill:hover,
 .account-pill[aria-expanded="true"] {
-  border-color: rgba(0, 212, 255, 0.4);
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
+  border-color: var(--border);
 }
 
 .avatar-circle {
@@ -927,17 +1017,18 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--gradient-cyan);
+  background: linear-gradient(135deg, #00d4ff 0%, #00a8cc 100%);
   color: #001018;
   font-weight: 800;
   font-size: 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .avatar-circle.lg {
-  width: 40px;
-  height: 40px;
-  font-size: 16px;
+  width: 42px;
+  height: 42px;
+  font-size: 17px;
 }
 
 .account-pill .avatar-name {
@@ -949,56 +1040,62 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   background: none;
   border: none;
   padding: 0;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.1px;
+  color: var(--text-secondary);
+}
+
+.account-pill:hover .avatar-name {
   color: var(--text-primary);
 }
 
 .avatar-chev {
-  font-size: 10px;
   color: var(--text-muted);
-  margin-left: 2px;
+  margin-left: -2px;
 }
 
-/* ---- Popovers ---- */
+/* ============================================================================
+   Popovers
+   ============================================================================ */
 
-.popover-wrap {
-  position: relative;
-}
+.popover-wrap { position: relative; }
 
 .popover {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 10px);
   right: 0;
   width: 320px;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 212, 255, 0.04);
-  padding: 8px;
-  z-index: 50;
-  animation: pop-in 120ms ease-out;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 2px 8px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  z-index: 100;
+  animation: pop-in 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .popover[hidden] { display: none; }
 
 @keyframes pop-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .popover-section-label {
   font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 1.2px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
   text-transform: uppercase;
   color: var(--text-muted);
-  padding: 10px 12px 6px;
+  padding: 10px 12px 4px;
 }
 
 .popover-divider {
   height: 1px;
   background: var(--border);
-  margin: 6px 4px;
+  margin: 4px 8px;
 }
 
 .popover-item {
@@ -1006,10 +1103,10 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 9px 10px;
   background: transparent;
   border: none;
-  border-radius: var(--radius);
+  border-radius: 7px;
   cursor: pointer;
   text-align: left;
   text-decoration: none;
@@ -1019,20 +1116,21 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   transition: background var(--transition-fast);
 }
 
-.popover-item:hover {
-  background: var(--bg-elevated);
-}
+.popover-item:hover { background: var(--bg-elevated); }
 
 .popover-item .pi-icon {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   background: var(--bg-tertiary);
-  border-radius: 7px;
-  font-size: 14px;
-  color: var(--accent-cyan);
+  border-radius: 8px;
+  color: var(--text-secondary);
   flex-shrink: 0;
+}
+
+.popover-item:hover .pi-icon {
+  color: var(--accent-cyan);
 }
 
 .popover-item .pi-body {
@@ -1040,34 +1138,58 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  flex: 1;
 }
 
 .popover-item .pi-body b {
   color: var(--text-bright);
   font-weight: 600;
   font-size: 13px;
+  line-height: 1.3;
 }
 
 .popover-item .pi-body em {
   font-style: normal;
   color: var(--text-muted);
   font-size: 11px;
+  line-height: 1.3;
+}
+
+.popover-item .pi-kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
 }
 
 .popover-item-primary .pi-icon {
   background: rgba(0, 212, 255, 0.14);
   color: var(--accent-cyan);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.25);
+}
+
+.popover-item-primary:hover .pi-icon {
+  background: rgba(0, 212, 255, 0.22);
 }
 
 .popover-footer {
-  padding: 8px 12px 4px;
+  padding: 8px 10px 4px;
   border-top: 1px solid var(--border);
-  margin-top: 6px;
+  margin-top: 4px;
   text-align: right;
 }
 
 .popover-footer .version-badge {
   font-size: 10px;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 /* Account popover header */
@@ -1076,44 +1198,46 @@ body[data-view="arena"] .arena-canvas-wrap canvas {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 12px 14px;
+  padding: 14px 12px 14px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
-.popover-account-meta { min-width: 0; }
+.popover-account-meta { min-width: 0; flex: 1; }
 
 .aa-name {
   font-weight: 700;
   color: var(--text-bright);
   font-size: 14px;
+  letter-spacing: 0.1px;
 }
 
 .aa-sub {
   font-size: 11px;
   color: var(--text-muted);
+  margin-top: 2px;
 }
 
-/* ---- Hide legacy view-tabs container when used in old layout (now rail) ---- */
+/* ---- Hide legacy elements ---- */
 
 .view-tabs { display: none; }
+.floating-help-btn[hidden] { display: none !important; }
 
 /* ============================================================================
-   Responsive — narrow screens collapse the rail labels
+   Responsive
    ============================================================================ */
 
 @media (max-width: 1024px) {
-  .app-layout { grid-template-columns: 56px 200px 1fr; }
-  .nav-rail { padding: 6px 0 8px; }
-  .rail-item .rail-text { font-size: 8px; }
-  .rail-brand-text { display: none; }
+  .app-layout { grid-template-columns: 60px 200px 1fr; }
+  .btn-icon-search { min-width: 160px; }
 }
 
 @media (max-width: 720px) {
-  .app-layout { grid-template-columns: 52px 1fr; }
+  .app-layout { grid-template-columns: 56px 1fr; }
   .sidebar { display: none; }
   .popover { width: 280px; }
-  .account-pill .avatar-name { max-width: 60px; }
-  .btn-icon-search { min-width: 80px; }
+  .account-pill .avatar-name { display: none; }
+  .btn-icon-search { min-width: auto; padding: 0 10px; }
+  .btn-icon-search .bi-text,
   .btn-icon-search .kbd-mini { display: none; }
 }
