@@ -339,7 +339,11 @@ on damaged {
   healer: {
     name: "Survivor",
     class: "support",
-    source: `robot "Survivor" version "3.0"
+    source: `robot "Survivor" version "4.0"
+
+// Support tuned to actually fight. Camps the heal zone when wounded but
+// always returns fire whenever the shot is available, and uses zap to keep
+// brawlers from comfortably stacking on top.
 
 meta {
   author: "ArenaLab"
@@ -347,49 +351,37 @@ meta {
 }
 
 const {
-  FLEE_HEALTH = 45
-  SAFE_HEALTH = 70
+  HEAL_HP = 35
+  PANIC_HP = 22
 }
 
 state {
-  healing: boolean = false
-}
-
-fn find_safety() {
-  let heal = nearest_heal_zone()
-  if heal != null {
-    move_to heal.position
-    return
-  }
-  let cover = nearest_cover()
-  if cover != null {
-    move_to cover
-  } else {
-    retreat
-  }
+  stuck_x: number = 0
+  stuck_y: number = 0
+  stuck_count: number = 0
 }
 
 on spawn {
   mark_position "spawn"
-  every 45 {
-    let pickup = nearest_pickup()
-    if pickup != null {
-      if pickup.type == "energy" {
-        mark_position "energy_spot"
-      }
-    }
-  }
 }
 
 on tick {
   if is_in_hazard() {
+    turn_right
     move_forward
     return
   }
 
+  // Avoid mines.
+  let mine = nearest_mine()
+  if mine != null and mine.distance < 3 {
+    turn_right
+    move_forward
+    return
+  }
+
+  // Already in a heal zone and not full HP: hold it, fire from inside.
   if is_in_heal_zone() and health() < max_health() {
-    set healing = true
-    mark_position "heal_spot"
     let enemy = nearest_enemy()
     if enemy != null and can_attack(enemy) {
       attack enemy
@@ -398,68 +390,102 @@ on tick {
     return
   }
 
-  // While recovering from a heal zone but still below safe HP, stay defensive
-  // instead of re-engaging on the next tick.
-  if healing and health() < SAFE_HEALTH {
-    find_safety()
-    return
-  }
-  set healing = false
-
-  if health() < FLEE_HEALTH {
-    find_safety()
-    return
-  }
-
-  let pickup = nearest_pickup()
-  if pickup != null and pickup.type == "energy" {
-    move_to pickup.position
+  // Panic seek heal zone — but never silently if the shot's available.
+  if health() < PANIC_HP {
+    let h = nearest_heal_zone()
+    if h != null {
+      let e = nearest_enemy()
+      if e != null and can_attack(e) { fire_at e.position }
+      move_to h.position
+      return
+    }
+    retreat
     return
   }
 
   let enemy = nearest_enemy()
-  if enemy != null {
-    if is_enemy_facing_me(enemy) and health() < SAFE_HEALTH {
-      find_safety()
+
+  if enemy == null {
+    // Stuck-bounce only while patrolling.
+    let here = position()
+    let dx = here.x - stuck_x
+    let dy = here.y - stuck_y
+    if dx * dx + dy * dy < 0.25 {
+      set stuck_count = stuck_count + 1
+    } else {
+      set stuck_count = 0
+      set stuck_x = here.x
+      set stuck_y = here.y
+    }
+    if stuck_count > 4 {
+      set stuck_count = 0
+      if tick_phase(2) == 0 { turn_left } else { turn_right }
+      move_forward
       return
     }
-    if can_attack(enemy) {
-      attack enemy
-    } else {
-      let dist = distance_to(enemy.position)
-      if dist < 10 and health() < SAFE_HEALTH {
-        find_safety()
-      } else {
-        move_toward enemy.position
-      }
+    if health() < HEAL_HP {
+      let h = nearest_heal_zone()
+      if h != null { move_to h.position return }
     }
+    if wall_ahead(3) { turn_right move_forward return }
+    let pickup = nearest_pickup()
+    if pickup != null { move_to pickup.position return }
+    move_forward
     return
   }
 
-  let cp = nearest_control_point()
-  if cp != null {
-    move_to cp.position
-  } else {
-    if wall_ahead(3) { turn_right } else { move_forward }
+  if heat_percent() > 85 {
+    vent_heat
+    return
+  }
+
+  let d = distance_to(enemy.position)
+
+  // Close-quarters: zap shrugs off a brawler stacking on top.
+  if d < 4 {
+    if energy() > 25 { zap }
+    else if can_attack(enemy) { attack enemy }
+    retreat
+    return
+  }
+
+  // Mid-range: fire and back off to keep the stand-off.
+  if d < 8 {
+    if can_attack(enemy) { fire_at enemy.position }
+    retreat
+    return
+  }
+
+  // Long range: close to attack range while firing if we can.
+  if can_attack(enemy) {
+    fire_at enemy.position
+    return
+  }
+  move_toward enemy.position
+}
+
+on damaged {
+  if health() < HEAL_HP {
+    send_signal "need_help"
+    let h = nearest_heal_zone()
+    if h != null { move_to h.position }
   }
 }
 
 on low_health {
-  find_safety()
-}
-
-on damaged {
-  if health() < FLEE_HEALTH {
-    send_signal "need_help"
-    find_safety()
-  }
+  let h = nearest_heal_zone()
+  if h != null { move_to h.position }
 }`,
   },
 
   flanker: {
     name: "Flanker",
     class: "ranger",
-    source: `robot "Flanker" version "3.0"
+    source: `robot "Flanker" version "4.0"
+
+// Aggressive ranger that engages from the edge of attack range. Fires every
+// tick the shot is available, strafes between shots to spoil return-aim,
+// breaks contact through a heal zone at low HP.
 
 meta {
   author: "ArenaLab"
@@ -467,92 +493,108 @@ meta {
 }
 
 const {
-  ENGAGE_HEALTH = 35
+  HEAL_HP = 35
 }
 
 state {
-  flanking: boolean = true
-  sweep_angle: number = 0
+  stuck_x: number = 0
+  stuck_y: number = 0
+  stuck_count: number = 0
 }
 
 on spawn {
-  set flanking = true
-  set sweep_angle = 0
-  place_mine
-  after 30 {
-    place_mine
-  }
+  mark_position "home"
 }
 
 on tick {
   if is_in_hazard() {
-    strafe_left
+    turn_right
+    move_forward
+    return
+  }
+
+  // Avoid mines.
+  let mine = nearest_mine()
+  if mine != null and mine.distance < 3 {
+    turn_right
+    move_forward
     return
   }
 
   let enemy = nearest_enemy()
 
   if enemy == null {
-    let sound = nearest_sound()
-    if sound != null {
-      move_toward sound.position
+    // Stuck-bounce only when patrolling.
+    let here = position()
+    let dx = here.x - stuck_x
+    let dy = here.y - stuck_y
+    if dx * dx + dy * dy < 0.25 {
+      set stuck_count = stuck_count + 1
+    } else {
+      set stuck_count = 0
+      set stuck_x = here.x
+      set stuck_y = here.y
+    }
+    if stuck_count > 4 {
+      set stuck_count = 0
+      if tick_phase(2) == 0 { turn_left } else { turn_right }
+      move_forward
       return
     }
-    set sweep_angle = sweep_angle + 1
-    if wall_ahead(4) {
-      turn_right
-      turn_right
-    } else {
-      move_forward
+    if health() < HEAL_HP {
+      let heal = nearest_heal_zone()
+      if heal != null { move_to heal.position return }
     }
-    if sweep_angle > 15 {
-      turn_right
-      set sweep_angle = 0
-    }
+    if wall_ahead(3) { turn_right move_forward return }
+    let sound = nearest_sound()
+    if sound != null { move_toward sound.position return }
+    move_forward
     return
   }
 
-  if health() < ENGAGE_HEALTH {
-    let heal = nearest_heal_zone()
-    if heal != null {
-      move_to heal.position
-      return
-    }
+  if heat_percent() > 85 {
+    vent_heat
+    return
+  }
+
+  let d = distance_to(enemy.position)
+  let is_brawler = enemy.class == "brawler" or enemy.class == "tank"
+
+  // Close-quarters fallback: zap if energy allows, then back off.
+  if d < 4 {
+    if energy() > 25 { zap }
+    else if can_attack(enemy) { fire_at enemy.position }
     retreat
     return
   }
 
-  let dist = distance_to(enemy.position)
-
-  if dist > 10 and flanking {
-    if not is_enemy_facing_me(enemy) {
-      move_toward enemy.position
-      return
+  // Inside attack range — fire every tick. fire_heavy at 22 dmg/shot is
+  // the difference between dealing real damage and being chip-killed.
+  if d < 8 {
+    if can_attack(enemy) {
+      if ammo() >= 4 and heat_percent() < 65 {
+        fire_heavy enemy.position
+      } else {
+        fire_at enemy.position
+      }
     }
-    if wall_ahead(3) { turn_left }
-    strafe_right
+    if is_brawler { retreat } else { move_toward enemy.position }
     return
   }
 
-  set flanking = false
-
-  if can_attack(enemy) {
-    let angle = angle_to(enemy.position)
-    fire_at enemy.position
-    if angle > 0 { strafe_right } else { strafe_left }
-  } else {
-    move_toward enemy.position
-  }
-}
-
-on enemy_seen {
-  set flanking = true
-  set sweep_angle = 0
-  send_signal "contact"
+  // Outside attack range — always close.
+  if can_attack(enemy) { fire_at enemy.position }
+  move_toward enemy.position
 }
 
 on damaged {
-  set flanking = false
+  // Bump stuck_count down — taking damage means we're definitely engaged.
+  set stuck_count = 0
+}
+
+on low_health {
+  let heal = nearest_heal_zone()
+  if heal != null { move_to heal.position }
 }`,
   },
 
@@ -804,11 +846,12 @@ on signal_received(event) {
   phantom: {
     name: "Phantom",
     class: "ranger",
-    source: `robot "Phantom" version "1.0"
+    source: `robot "Phantom" version "3.0"
 
-// Stealth assassin. Scouts cloaked, waits for a wounded target, strikes with
-// fire_heavy from oblique angles, then disengages before the cloak breaks.
-// Arms self-destruct as a last resort when pinned at low HP.
+// Stealth assassin. Tracks the distance trend each tick so that it only
+// retreats when the enemy is actively closing — against a fellow ranger
+// that's also kiting, it holds ground and trades fire instead of stalling
+// into an infinite-distance stalemate.
 
 meta {
   author: "ArenaLab"
@@ -816,104 +859,138 @@ meta {
 }
 
 const {
-  STRIKE_HP = 45
-  CLOAK_TRIGGER_DIST = 14
-  DISENGAGE_HP = 35
+  HEAL_HP = 35
+  CLOAK_DIST = 18
 }
 
 state {
-  mode: string = "stalk"
+  stuck_x: number = 0
+  stuck_y: number = 0
+  stuck_count: number = 0
 }
 
 on spawn {
   mark_position "den"
-  set mode = "stalk"
-}
-
-fn choose_target() {
-  // Prefer a wounded enemy the whole squad knows about, else the nearest.
-  let weak = weakest_visible_enemy()
-  if weak != null and weak.health < STRIKE_HP {
-    return weak
+  // Drop a mine at spawn — a closing brawler usually walks through this lane.
+  place_mine
+  // Two more mines staggered through the early-game wander.
+  after 35 {
+    place_mine
   }
-  return nearest_enemy()
+  after 70 {
+    place_mine
+  }
 }
 
 on tick {
-  if is_in_hazard() { move_forward return }
-
-  let enemy = choose_target()
-
-  // Disengage mode: always move away from the nearest enemy and seek a depot
-  // before returning to hunt. Set by damage + low-health handlers.
-  if mode == "disengage" {
-    let depot = nearest_depot()
-    if depot != null and not is_on_depot() {
-      move_to depot.position
-      return
-    }
-    if is_on_depot() { vent_heat return }
-    if health() > 70 { set mode = "stalk" }
-    retreat
+  if is_in_hazard() {
+    turn_right
+    move_forward
     return
   }
 
-  // No threat nearby → use cloak+movement to close distance toward last known.
+  // Avoid mines the same way Bruiser does.
+  let mine = nearest_mine()
+  if mine != null and mine.distance < 3 {
+    turn_right
+    move_forward
+    return
+  }
+
+  let enemy = nearest_enemy()
+
   if enemy == null {
+    // Stuck-bounce ONLY when patrolling — cover blocks deadlock move_to,
+    // but we don't want this to fire mid-combat where moving little is
+    // sometimes correct (firing in place, against an arena wall, etc).
+    let here = position()
+    let dx = here.x - stuck_x
+    let dy = here.y - stuck_y
+    if dx * dx + dy * dy < 0.25 {
+      set stuck_count = stuck_count + 1
+    } else {
+      set stuck_count = 0
+      set stuck_x = here.x
+      set stuck_y = here.y
+    }
+    if stuck_count > 4 {
+      set stuck_count = 0
+      if tick_phase(2) == 0 { turn_left } else { turn_right }
+      move_forward
+      return
+    }
+
+    if not is_cloaked() and energy() > 30 { cloak }
+    if wall_ahead(3) { turn_right move_forward return }
     let last = last_seen_enemy()
-    if last != null and last.age < 60 {
+    if last != null and last.age < 80 {
       move_toward last.position
       return
     }
-    let cp = nearest_control_point()
-    if cp != null { move_to cp.position return }
-    if wall_ahead(3) { turn_right } else { move_forward }
+    if health() < HEAL_HP {
+      let h = nearest_heal_zone()
+      if h != null { move_to h.position return }
+    }
+    move_forward
     return
+  } else {
+    // Reset stuck tracking once we're in combat.
+    set stuck_count = 0
   }
 
   let d = distance_to(enemy.position)
 
-  // Ambush setup: cloak while approaching a juicy target at medium range.
-  if not is_cloaked() and d > CLOAK_TRIGGER_DIST and d < 30 and enemy.health < STRIKE_HP {
+  // Cloak on the approach so the first volley is free.
+  if not is_cloaked() and d > CLOAK_DIST and energy() > 30 {
     cloak
-    move_toward enemy.position
+  }
+
+  // Vent overheat instead of misfiring.
+  if heat_percent() > 85 {
+    vent_heat
     return
   }
 
-  // In strike window: heavy shot if ammo allows, else light fire.
-  if can_attack(enemy) {
-    if ammo() >= 4 and heat_percent() < 70 {
-      fire_heavy enemy.position
-    } else if ammo() >= 1 {
-      fire_light enemy.position
-    } else {
-      // Out of ammo — bleed heat and close for melee.
-      if d < 5 { attack enemy } else { move_toward enemy.position }
+  // Pick stance from enemy class. Faster melee threats (brawler/tank) → kite
+  // to keep the stand-off; same-speed ranged threats (ranger/support) → close
+  // in to force a damage trade rather than draw at max range.
+  let is_brawler = enemy.class == "brawler" or enemy.class == "tank"
+
+  // Close-quarters panic: zap, back off — we lose a melee trade.
+  if d < 4 {
+    if energy() > 25 { zap }
+    else if can_attack(enemy) { fire_at enemy.position }
+    retreat
+    return
+  }
+
+  // Inside attack range — fire every tick. fire_heavy converges nicely with
+  // a closing brawler; fall back to fire_at when ammo or heat is low.
+  if d < 8 {
+    if can_attack(enemy) {
+      if ammo() >= 4 and heat_percent() < 75 {
+        fire_heavy enemy.position
+      } else {
+        fire_at enemy.position
+      }
     }
-    // Lateral break so we don't get line-checked.
-    if tick_phase(2) == 0 { strafe_left } else { strafe_right }
+    if is_brawler { retreat } else { move_toward enemy.position }
     return
   }
 
-  // Low HP + still visible: consider arming self-destruct.
-  if health() < DISENGAGE_HP and d < 8 and not self_destruct_armed() {
-    self_destruct
-    return
+  // Outside attack range: always close, fire if available.
+  if can_attack(enemy) {
+    fire_at enemy.position
   }
-
-  // Default: keep ranged pressure
-  fire_at enemy.position
+  move_toward enemy.position
 }
 
 on damaged(event) {
-  // Getting hit while cloaked means we're already revealed — break contact.
-  if health() < DISENGAGE_HP {
-    set mode = "disengage"
+  // Big hits + low HP: seek heal zone immediately.
+  if health() < HEAL_HP {
+    let h = nearest_heal_zone()
+    if h != null { move_to h.position }
   }
-}
-
-on low_health {
-  set mode = "disengage"
 }`,
   },
 
@@ -1151,12 +1228,12 @@ on low_health {
   oracle: {
     name: "Oracle",
     class: "ranger",
-    source: `robot "Oracle" version "1.1"
+    source: `robot "Oracle" version "2.0"
 
-// Showcase bot for the v1.1 predictive sensors: leads shots with
-// predict_position(), dodges with incoming_projectile(), and uses
-// threat_level() as a single-scalar mode switch. A good reference for
-// anyone writing a kiter against fast-moving targets.
+// Predictive ranger: leads shots with predict_position(), dodges with
+// incoming_projectile(), and uses threat_level() for the heal-zone bail-out.
+// Tuned to stay aggressive against a charging brawler — only retreats to a
+// depot when out of combat.
 
 meta {
   author: "ArenaLab"
@@ -1164,35 +1241,44 @@ meta {
 }
 
 const {
-  LEAD_TICKS = 6
-  DODGE_WINDOW = 8
-  SAFE_THREAT = 55
-  CLOSE_RANGE = 4
+  LEAD_TICKS = 5
+  DODGE_WINDOW = 6
+  PANIC_THREAT = 65
+  HEAL_HP = 35
 }
 
 state {
   last_strafe: number = 1
   dodge_until: number = 0
+  stuck_x: number = 0
+  stuck_y: number = 0
+  stuck_count: number = 0
 }
 
 on spawn {
-  mark_position "spawn_home"
-}
-
-// Turn perpendicular to an incoming projectile for a few ticks.
-fn start_dodge(dir_x: number, dir_y: number) {
-  set dodge_until = current_tick() + DODGE_WINDOW
-  // Perpendicular strafe direction: flip signs each hit so we zig-zag.
-  set last_strafe = last_strafe * -1
+  mark_position "home"
 }
 
 on tick {
-  if is_in_hazard() { move_forward return }
+  if is_in_hazard() {
+    turn_right
+    move_forward
+    return
+  }
 
-  // Dodge incoming fire for a short window before re-engaging.
+  // Avoid mines.
+  let mine = nearest_mine()
+  if mine != null and mine.distance < 3 {
+    turn_right
+    move_forward
+    return
+  }
+
+  // Dodge incoming fire for a few ticks before re-engaging.
   let incoming = incoming_projectile()
   if incoming != null and incoming.ticks_to_impact <= 4 {
-    start_dodge(incoming.direction.x, incoming.direction.y)
+    set dodge_until = current_tick() + DODGE_WINDOW
+    set last_strafe = last_strafe * -1
     if last_strafe > 0 { strafe_right } else { strafe_left }
     return
   }
@@ -1201,68 +1287,94 @@ on tick {
     return
   }
 
-  // Resource economy: fall back to the nearest depot when we are low on
-  // ammo OR overheated. Oracle never brawls — range is her entire kit.
-  if ammo_percent() < 25 or heat_percent() > 85 {
-    let depot = nearest_depot()
-    if depot != null {
-      move_to depot.position
+  let enemy = nearest_enemy()
+
+  if enemy == null {
+    // Stuck-bounce only while patrolling, never mid-combat.
+    let here = position()
+    let dx = here.x - stuck_x
+    let dy = here.y - stuck_y
+    if dx * dx + dy * dy < 0.25 {
+      set stuck_count = stuck_count + 1
+    } else {
+      set stuck_count = 0
+      set stuck_x = here.x
+      set stuck_y = here.y
+    }
+    if stuck_count > 4 {
+      set stuck_count = 0
+      if tick_phase(2) == 0 { turn_left } else { turn_right }
+      move_forward
       return
     }
+    if wall_ahead(3) { turn_right move_forward return }
+    if health() < HEAL_HP {
+      let h = nearest_heal_zone()
+      if h != null { move_to h.position return }
+    }
+    move_forward
+    return
+  }
+
+  // Vent heat instead of misfiring at the cap.
+  if heat_percent() > 85 {
     vent_heat
     return
   }
 
-  let enemy = nearest_enemy()
-  if enemy == null {
-    let cp = nearest_enemy_control_point()
-    if cp != null { move_to cp.position return }
-    overwatch
-    stop
-    return
-  }
-
-  let threat = threat_level()
-
-  // Panic retreat on compound threat (low HP + multiple enemies visible).
-  if threat > SAFE_THREAT {
-    let heal = nearest_heal_zone()
-    if heal != null { move_to heal.position return }
+  // Bail to a heal zone only on compound threat.
+  if threat_level() > PANIC_THREAT {
+    let h = nearest_heal_zone()
+    if h != null { move_to h.position return }
     retreat
     return
   }
 
   let d = distance_to(enemy.position)
+  let is_brawler = enemy.class == "brawler" or enemy.class == "tank"
 
-  // Close-quarters fallback: zap is cheap and bypasses ammo.
-  if d < CLOSE_RANGE {
-    if energy() > 25 { zap return }
+  // Close-quarters: zap is the only thing that can rescue a ranger at melee.
+  if d < 4 {
+    if energy() > 25 { zap }
+    else if can_attack(enemy) { fire_at enemy.position }
     retreat
     return
   }
 
-  // Lead-shot: predict where the target will be after LEAD_TICKS and fire there.
-  let predicted = predict_position(enemy, LEAD_TICKS)
-  if predicted != null and can_attack(enemy) {
-    fire_at predicted
-    // Sidestep after firing to avoid return-fire telegraphed by the enemy.
-    if last_strafe > 0 { strafe_right } else { strafe_left }
-    set last_strafe = last_strafe * -1
+  // Inside attack range — lead-fire. fire_heavy puts out 22 dmg/shot, which
+  // is what gives the bot a chance to out-trade a charging brawler.
+  if d < 8 {
+    if can_attack(enemy) {
+      let predicted = predict_position(enemy, LEAD_TICKS)
+      let aim = enemy.position
+      if predicted != null { set aim = predicted }
+      if ammo() >= 4 and heat_percent() < 65 {
+        fire_heavy aim
+      } else {
+        fire_at aim
+      }
+    }
+    if is_brawler { retreat } else { move_toward enemy.position }
     return
+  }
+
+  // Outside attack range — close into the kite band.
+  if can_attack(enemy) {
+    let predicted = predict_position(enemy, LEAD_TICKS)
+    if predicted != null { fire_at predicted } else { fire_at enemy.position }
   }
   move_toward enemy.position
 }
 
 on damaged(event) {
-  // Use damage_direction to dodge AWAY from the attacker perpendicular.
-  let d = damage_direction()
-  if d != null {
-    set last_strafe = last_strafe * -1
-  }
+  let dir = damage_direction()
+  if dir != null { set last_strafe = last_strafe * -1 }
 }
 
 on low_health {
   hive_set("oracle_retreating", 1)
+  let h = nearest_heal_zone()
+  if h != null { move_to h.position }
 }`,
   },
 
@@ -1534,7 +1646,7 @@ on damaged(event) {
   predator: {
     name: "Predator",
     class: "ranger",
-    source: `robot "Predator" version "1.0"
+    source: `robot "Predator" version "2.0"
 
 // ----------------------------------------------------------------------------
 // Advanced beta showcase. Pulls every major perception + stdlib feature
@@ -1542,15 +1654,12 @@ on damaged(event) {
 //
 //   * incoming_projectile() + normalize() -> perpendicular dodge
 //   * predict_position()    -> lead-shot firing solution
-//   * threat_level()        -> single-scalar mode gate
-//   * list_first(), index_of(), list_contains() -> target memory
-//   * chance(), rand_float() -> non-deterministic feints within a seed
-//   * hive_set/get          -> coordinate with allies on focus-fire
-//   * log() + starts_with() -> self-diagnostics surfaced to the console
+//   * threat_level()        -> single-scalar bail-out gate
+//   * weakest_visible_enemy() + hive_set/get -> coordinate focus-fire
+//   * chance(), rand_float() -> deterministic feints within a seed
 //
-// Open this AFTER reading Scout. It's long, but the comments explain every
-// non-obvious branch, and nothing here is magic — every sensor is listed in
-// the Language Reference drawer (Ctrl+/).
+// Tuned so the bot actually engages — it always fires when the shot is
+// available and only bails on compound threat or low HP.
 // ----------------------------------------------------------------------------
 
 meta {
@@ -1559,78 +1668,60 @@ meta {
 }
 
 const {
-  PANIC_THREAT = 70
-  LEAD_TICKS = 6
+  PANIC_THREAT = 65
+  LEAD_TICKS = 5
   DODGE_MIN_TICKS = 4
-  FEINT_CHANCE = 0.15
+  HEAL_HP = 35
 }
 
 state {
-  last_target: string = ""
   dodge_until: number = 0
-}
-
-// Perpendicular dodge: given a projectile direction vector, pick a side-step
-// target that moves us 8 units away from the projectile path.
-fn dodge_vector(dir_x: number, dir_y: number) -> position {
-  // Rotate (dx, dy) by 90 degrees to get a perpendicular unit vector, then
-  // normalize so the step size is predictable.
-  let perp = normalize(make_position(-dir_y, dir_x))
-  let me = position()
-  return make_position(me.x + perp.x * 8, me.y + perp.y * 8)
+  strafe_dir: number = 1
+  stuck_x: number = 0
+  stuck_y: number = 0
+  stuck_count: number = 0
 }
 
 on spawn {
-  log("predator online")
+  mark_position "home"
   set dodge_until = 0
 }
 
 on tick {
-  // --- Stage 1: honor an in-progress dodge before taking any other action.
-  // Committing for DODGE_MIN_TICKS keeps us from thrashing between dodge and
-  // fire-aim when a new projectile appears on the very next tick.
+  if is_in_hazard() {
+    turn_right
+    move_forward
+    return
+  }
+
+  // Avoid mines.
+  let mine = nearest_mine()
+  if mine != null and mine.distance < 3 {
+    turn_right
+    move_forward
+    return
+  }
+
+  // --- Honor an in-progress dodge before anything else.
   if current_tick() < dodge_until {
-    let side = mod(current_tick(), 2)
-    if side == 0 { strafe_left } else { strafe_right }
+    if strafe_dir > 0 { strafe_right } else { strafe_left }
     return
   }
 
-  // --- Stage 2: dodge incoming fire; avoiding damage beats dealing it.
+  // --- Dodge incoming fire: avoiding damage beats dealing it.
   let inc = incoming_projectile()
-  if inc != null and inc.ticks_to_impact <= LEAD_TICKS {
+  if inc != null and inc.ticks_to_impact <= 4 {
     set dodge_until = current_tick() + DODGE_MIN_TICKS
-    let goto = dodge_vector(inc.direction.x, inc.direction.y)
-    move_to goto
-    if chance(0.5) {
-      // Take a snap shot on the way out the door if we're not venting heat.
-      let close = nearest_enemy()
-      if close != null and heat_percent() < 70 {
-        fire_at close.position
-      }
-    }
-    log("dodging, impact in ", inc.ticks_to_impact)
+    set strafe_dir = strafe_dir * -1
+    if strafe_dir > 0 { strafe_right } else { strafe_left }
     return
   }
 
-  // --- Stage 3: threat gate. If we're in real trouble, break contact.
-  let threat = threat_level()
-  if threat > PANIC_THREAT {
-    let heal = nearest_heal_zone()
-    if heal != null { move_to heal.position return }
-    let home = recall_position("home")
-    if home != null { move_to home return }
-    retreat
-    return
-  }
-
-  // --- Stage 4: target selection. Prefer the hive's focus-fire target; fall
-  // back to the lowest-HP visible enemy, then the nearest enemy.
+  // --- Pick a target: hive focus, then weakest visible, then nearest.
   let focus_id = hive_get("focus")
   let visible = visible_enemies()
   let target = null
-
   if focus_id != null {
-    // focus_id is a string; find its view in visible_enemies if still visible.
     let idx = 0
     while idx < length(visible) {
       let e = visible[idx]
@@ -1638,71 +1729,97 @@ on tick {
       set idx = idx + 1
     }
   }
-
   if target == null {
     let weakest = weakest_visible_enemy()
     if weakest != null { set target = weakest }
   }
-  if target == null { set target = list_first(visible) }
+  if target == null { set target = nearest_enemy() }
 
   if target == null {
-    // Nothing to shoot at. Occasionally fire a scan ping to refresh memory.
-    if chance(0.10) { scan(12) }
-    let cp = nearest_enemy_control_point()
-    if cp != null { move_to cp.position return }
+    // Stuck-bounce only while patrolling.
+    let here = position()
+    let dx = here.x - stuck_x
+    let dy = here.y - stuck_y
+    if dx * dx + dy * dy < 0.25 {
+      set stuck_count = stuck_count + 1
+    } else {
+      set stuck_count = 0
+      set stuck_x = here.x
+      set stuck_y = here.y
+    }
+    if stuck_count > 4 {
+      set stuck_count = 0
+      if tick_phase(2) == 0 { turn_left } else { turn_right }
+      move_forward
+      return
+    }
+    if wall_ahead(3) { turn_right move_forward return }
+    if health() < HEAL_HP {
+      let h = nearest_heal_zone()
+      if h != null { move_to h.position return }
+    }
     move_forward
     return
   }
 
-  // Broadcast our pick to the squad so allies can pile on.
   hive_set("focus", target.id)
-  if target.id != last_target {
-    log("new target ", target.id)
-    set last_target = target.id
-  }
 
-  // --- Stage 5: lead the shot. Predict where the target will be and fire
-  // there instead of where they currently are — ignoring lead is what lets
-  // low-skill bots miss stationary kites.
-  let aim = predict_position(target, LEAD_TICKS)
-  let d = distance_to(target.position)
-
-  if d > 14 {
-    move_toward target.position
-    return
-  }
-
-  if can_attack(target) and d < 3 {
-    attack target
-    return
-  }
-
-  // Occasional feint: 15% of eligible ticks, strafe instead of firing to
-  // break the enemy's aim solution. rand_float is deterministic per seed so
-  // matches stay reproducible even with the randomness.
-  if chance(FEINT_CHANCE) {
-    if rand_float(0, 1) < 0.5 { strafe_left } else { strafe_right }
-    return
-  }
-
-  if heat_percent() < 75 and ammo() > 2 {
-    fire_at aim
-  } else if heat_percent() >= 75 {
+  // Vent heat instead of misfiring.
+  if heat_percent() > 85 {
     vent_heat
-  } else {
-    move_toward target.position
+    return
   }
+
+  // --- Threat bail-out: compound threat (low HP + multiple enemies) → heal.
+  if threat_level() > PANIC_THREAT {
+    let h = nearest_heal_zone()
+    if h != null { move_to h.position return }
+    retreat
+    return
+  }
+
+  let d = distance_to(target.position)
+  let is_brawler = target.class == "brawler" or target.class == "tank"
+
+  // Close-quarters: zap is the only thing that saves a ranger at melee.
+  if d < 4 {
+    if energy() > 25 { zap }
+    else if can_attack(target) { fire_at target.position }
+    retreat
+    return
+  }
+
+  // Inside attack range — lead-fire. fire_heavy at 22 dmg/shot is what
+  // gives the bot a real chance against the brawler line.
+  if d < 8 {
+    if can_attack(target) {
+      let predicted = predict_position(target, LEAD_TICKS)
+      let aim = target.position
+      if predicted != null { set aim = predicted }
+      if ammo() >= 4 and heat_percent() < 65 {
+        fire_heavy aim
+      } else {
+        fire_at aim
+      }
+    }
+    if is_brawler { retreat } else { move_toward target.position }
+    return
+  }
+
+  // Outside attack range — always close.
+  if can_attack(target) {
+    let predicted = predict_position(target, LEAD_TICKS)
+    if predicted != null { fire_at predicted } else { fire_at target.position }
+  }
+  move_toward target.position
 }
 
 on damaged(event) {
-  // If we took a big hit, log the attacker id for post-match analysis.
-  if event.data.damage > 12 {
-    log("heavy hit from ", event.data.sourceId)
-  }
+  let dir = damage_direction()
+  if dir != null { set strafe_dir = strafe_dir * -1 }
 }
 
 on destroyed {
-  // Announce our death so allies can shift focus; clears the stale hive key.
   send_signal "predator_down"
   hive_set("focus", null)
 }`,
