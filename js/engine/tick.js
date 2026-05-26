@@ -256,12 +256,16 @@ export function runMatch(setup) {
     // Phase 7: Resolve attacks and abilities (+ generate noise)
     for (const robot of world.getAliveRobots()) {
       const combatAction = combatActions.get(robot.id);
-      if (combatAction && ["attack", "fire_at", "burst_fire", "grenade", "use_ability", "shield"].includes(combatAction.type)) {
+      if (combatAction && [
+        "attack", "fire_at", "fire_light", "fire_heavy",
+        "burst_fire", "grenade", "use_ability", "shield",
+        "zap", "vent_heat",
+      ].includes(combatAction.type)) {
         resolveCombat(world, robot, combatAction);
         // Generate noise from combat
         if (combatAction.type === "grenade") {
           world.addNoise(robot.position, NOISE_GRENADE_RADIUS, robot.id, tick);
-        } else if (["attack", "fire_at", "burst_fire"].includes(combatAction.type)) {
+        } else if (["attack", "fire_at", "fire_light", "fire_heavy", "burst_fire", "zap"].includes(combatAction.type)) {
           world.addNoise(robot.position, NOISE_ATTACK_RADIUS, robot.id, tick);
         }
       }
