@@ -129,6 +129,8 @@ export class World {
       // --- Cloak ---
       cloakActive: false,
       cloakExpiresTick: 0,
+      // --- Shield: damage reduction window opened by `shield` action ---
+      shieldExpiresTick: 0,
       // --- Self-Destruct ---
       selfDestructTick: 0,   // 0 = not armed; >0 = tick it will detonate
     };

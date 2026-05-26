@@ -9,7 +9,8 @@ import {
   FIRE_AT_DAMAGE, FIRE_AT_RANGE, FIRE_AT_COOLDOWN, PROJECTILE_SPEED, PROJECTILE_TTL,
   BURST_FIRE_DAMAGE, BURST_FIRE_RANGE, BURST_FIRE_COOLDOWN, BURST_FIRE_ENERGY_COST,
   GRENADE_DAMAGE, GRENADE_RADIUS, GRENADE_RANGE, GRENADE_COOLDOWN, GRENADE_ENERGY_COST,
-  SHIELD_DURATION, SHIELD_COOLDOWN, SHIELD_ENERGY_COST, LOW_HEALTH_THRESHOLD,
+  SHIELD_DURATION, SHIELD_COOLDOWN, SHIELD_ENERGY_COST, SHIELD_DAMAGE_REDUCTION,
+  LOW_HEALTH_THRESHOLD,
   PICKUP_DAMAGE_MULTIPLIER,
   HEAT_MAX, HEAT_RECOVERY_THRESHOLD, HEAT_DECAY_PER_TICK,
   HEAT_ATTACK, HEAT_FIRE_AT, HEAT_FIRE_LIGHT, HEAT_FIRE_HEAVY, HEAT_BURST_FIRE,
@@ -19,6 +20,64 @@ import {
   FIRE_HEAVY_DAMAGE, FIRE_HEAVY_RANGE, FIRE_HEAVY_SPEED, FIRE_HEAVY_COOLDOWN,
   ZAP_RADIUS, ZAP_DAMAGE, ZAP_SELF_DAMAGE, ZAP_COOLDOWN, ZAP_ENERGY_COST,
 } from "../shared/config.js";
+
+/**
+ * Earliest t in [0,1] where the segment A→B enters a circle of radius r around C.
+ * Returns null if the segment never enters the circle. Used for swept projectile
+ * collision so a fast projectile (e.g. FIRE_LIGHT_SPEED=6) can't teleport past
+ * a target with collision radius 1.5 in a single tick.
+ */
+function segmentVsCircleT(A, B, C, r) {
+  const dx = B.x - A.x;
+  const dy = B.y - A.y;
+  const fx = A.x - C.x;
+  const fy = A.y - C.y;
+  const a = dx * dx + dy * dy;
+  if (a < 1e-12) {
+    return (fx * fx + fy * fy) <= r * r ? 0 : null;
+  }
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+  const sq = Math.sqrt(disc);
+  const t1 = (-b - sq) / (2 * a);
+  const t2 = (-b + sq) / (2 * a);
+  if (t1 >= 0 && t1 <= 1) return t1;
+  if (t2 >= 0 && t2 <= 1) return t2;
+  // Segment starts already inside the circle
+  if (c <= 0) return 0;
+  return null;
+}
+
+/**
+ * Segment A→B intersects axis-aligned bounding box (minX, minY)→(maxX, maxY).
+ * Liang-Barsky clipping. Used for swept projectile-vs-cover collision.
+ */
+function segmentIntersectsAABB(A, B, minX, minY, maxX, maxY) {
+  let t0 = 0, t1 = 1;
+  const dx = B.x - A.x;
+  const dy = B.y - A.y;
+  const ps = [-dx, dx, -dy, dy];
+  const qs = [A.x - minX, maxX - A.x, A.y - minY, maxY - A.y];
+  for (let i = 0; i < 4; i++) {
+    const p = ps[i];
+    const q = qs[i];
+    if (Math.abs(p) < 1e-12) {
+      if (q < 0) return false;
+    } else {
+      const t = q / p;
+      if (p < 0) {
+        if (t > t1) return false;
+        if (t > t0) t0 = t;
+      } else {
+        if (t < t0) return false;
+        if (t < t1) t1 = t;
+      }
+    }
+  }
+  return t0 <= t1;
+}
 
 /** Add heat to a robot, clamping to HEAT_MAX and setting overheated flag. */
 function addHeat(robot, amount) {
@@ -264,9 +323,10 @@ export function resolveCombat(world, robot, action) {
     case "shield": {
       const cd = robot.cooldowns.get("shield") ?? 0;
       if (cd > 0) break;
-      // Apply shield as a health restore capped at maxHealth (roughly 20% of base)
-      const shieldHeal = Math.round(robot.maxHealth * 0.2);
-      robot.health = Math.min(robot.maxHealth, robot.health + shieldHeal);
+      if (robot.energy < SHIELD_ENERGY_COST) break;
+      // Open a damage-reduction window — incoming damage is reduced by
+      // SHIELD_DAMAGE_REDUCTION until shieldExpiresTick.
+      robot.shieldExpiresTick = world.currentTick + SHIELD_DURATION;
       robot.cooldowns.set("shield", SHIELD_COOLDOWN);
       robot.energy = Math.max(0, robot.energy - SHIELD_ENERGY_COST);
       addHeat(robot, HEAT_SHIELD);
@@ -279,15 +339,17 @@ export function resolveCombat(world, robot, action) {
       break;
     }
 
-    case "use_ability": {
-      // Simplified ability system for PoC
-      break;
-    }
   }
 }
 
 /** Apply damage to a robot, emit events */
 export function applyDamage(world, target, damage, sourceId) {
+  // Shield window absorbs SHIELD_DAMAGE_REDUCTION fraction of incoming damage.
+  // Sudden-death and self-damage still get reduced; that's intentional — the
+  // shield is the cost (energy + heat + cooldown) for a temporary tankier state.
+  if (target.shieldExpiresTick > world.currentTick) {
+    damage = damage * (1 - SHIELD_DAMAGE_REDUCTION);
+  }
   target.health -= damage;
   // Taking damage breaks cloak.
   if (target.cloakActive) {
@@ -348,7 +410,11 @@ export function updateProjectiles(world) {
   const toRemove = [];
 
   for (const [id, proj] of world.projectiles) {
-    // Move projectile
+    // Swept move: track previous position so a fast projectile can't
+    // teleport past a target. fire_light moves 6.0 units/tick and the
+    // collision radius is 1.5, so a point-distance test missed every
+    // shot whose final position landed on the far side of the target.
+    const prev = { x: proj.position.x, y: proj.position.y };
     proj.position = add(proj.position, proj.velocity);
     proj.ttl--;
 
@@ -362,13 +428,17 @@ export function updateProjectiles(world) {
       continue;
     }
 
-    // Check collision with cover (projectiles blocked by walls)
+    // Cover collision: segment vs AABB. A point-in-box check missed any
+    // tick where the projectile cleared the cover in a single step.
     let hitCover = false;
     for (const cover of world.covers.values()) {
       const halfW = cover.width / 2;
       const halfH = cover.height / 2;
-      if (proj.position.x >= cover.position.x - halfW && proj.position.x <= cover.position.x + halfW &&
-          proj.position.y >= cover.position.y - halfH && proj.position.y <= cover.position.y + halfH) {
+      if (segmentIntersectsAABB(
+        prev, proj.position,
+        cover.position.x - halfW, cover.position.y - halfH,
+        cover.position.x + halfW, cover.position.y + halfH,
+      )) {
         hitCover = true;
         break;
       }
@@ -378,19 +448,24 @@ export function updateProjectiles(world) {
       continue;
     }
 
-    // Check collision with robots
+    // Robot collision: segment vs circle. Same teleport bug as cover.
+    let hitRobot = null;
+    let hitT = 2;
     for (const robot of world.robots.values()) {
       if (!robot.alive) continue;
       if (robot.id === proj.ownerId) continue;
-      // Same team? Skip friendly fire
       const owner = world.getRobot(proj.ownerId);
       if (owner && owner.teamId === robot.teamId) continue;
 
-      if (distance(proj.position, robot.position) < 1.5) {
-        applyDamage(world, robot, proj.damage, proj.ownerId);
-        toRemove.push(id);
-        break;
+      const t = segmentVsCircleT(prev, proj.position, robot.position, 1.5);
+      if (t !== null && t < hitT) {
+        hitT = t;
+        hitRobot = robot;
       }
+    }
+    if (hitRobot) {
+      applyDamage(world, hitRobot, proj.damage, proj.ownerId);
+      toRemove.push(id);
     }
   }
 

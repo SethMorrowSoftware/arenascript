@@ -35,8 +35,9 @@ const BUILTIN_SENSORS = new Set([
   // Resource economy
   "heat", "max_heat", "heat_percent", "overheated",
   "ammo", "max_ammo", "ammo_percent",
-  // Cloak + self-destruct state
+  // Cloak + shield + self-destruct state
   "is_cloaked", "cloak_remaining",
+  "is_shielded", "shield_remaining",
   "self_destruct_armed", "self_destruct_remaining",
   // Resupply depots
   "nearest_depot", "is_on_depot",
@@ -73,8 +74,7 @@ const BUILTIN_SENSORS = new Set([
 
 const VALID_ACTIONS = new Set([
   "move_to", "move_toward", "strafe_left", "strafe_right", "stop",
-  "attack", "fire_at", "use_ability", "shield", "retreat",
-  "mark_target", "capture", "ping",
+  "attack", "fire_at", "shield", "retreat",
   "burst_fire", "grenade",
   "move_forward", "move_backward", "turn_left", "turn_right",
   "place_mine", "send_signal", "mark_position", "taunt", "overwatch",
@@ -90,6 +90,19 @@ const VALID_TYPES = new Set([
 ]);
 
 /** Find the closest match from a set of candidates using Levenshtein distance */
+/**
+ * If `expr` is a literal of a known type, return the type name. Returns
+ * null for non-literals (we can't infer arbitrary expression types).
+ */
+function literalType(expr) {
+  if (!expr) return null;
+  if (expr.kind === "NumberLiteral") return "number";
+  if (expr.kind === "StringLiteral") return "string";
+  if (expr.kind === "BooleanLiteral") return "boolean";
+  if (expr.kind === "NullLiteral") return null; // null matches anything nullable
+  return null;
+}
+
 function findClosestMatch(name, candidates, maxDistance = 3) {
   let best = null;
   let bestDist = maxDistance + 1;
@@ -228,8 +241,24 @@ export class SemanticAnalyzer {
           this.#addError(`Duplicate state variable '${entry.name}'`, entry.span.line, entry.span.column);
         }
         this.#validateType(entry.type);
+        const declaredType = entry.type?.name ?? null;
+        // Initializer must match declared type (when both are known literals).
+        if (entry.initialValue) {
+          const litType = literalType(entry.initialValue);
+          if (litType && declaredType && litType !== declaredType) {
+            this.#addError(
+              `Type mismatch: state '${entry.name}' is declared as ${declaredType} but initialized with a ${litType} literal`,
+              entry.span.line, entry.span.column,
+            );
+          }
+        }
         this.#stateVars.add(entry.name);
-        this.#stateMeta.set(entry.name, { used: false, line: entry.span.line, column: entry.span.column });
+        this.#stateMeta.set(entry.name, {
+          used: false,
+          line: entry.span.line,
+          column: entry.span.column,
+          type: declaredType,
+        });
       }
     }
 
@@ -337,6 +366,19 @@ export class SemanticAnalyzer {
             );
           }
         }
+        // Literal-type check for state mutations. We can't infer types from
+        // arbitrary expressions, but a literal RHS that obviously mismatches
+        // the declared state type is always a bug.
+        if (this.#stateMeta.has(stmt.name)) {
+          const declared = this.#stateMeta.get(stmt.name).type;
+          const litType = literalType(stmt.value);
+          if (litType && declared && litType !== declared) {
+            this.#addError(
+              `Type mismatch: '${stmt.name}' is declared as ${declared} but assigned a ${litType} literal`,
+              stmt.span.line, stmt.span.column,
+            );
+          }
+        }
         this.#validateExpression(stmt.value);
         break;
       }
@@ -433,6 +475,17 @@ export class SemanticAnalyzer {
 
       case "ExpressionStatement":
         this.#validateExpression(stmt.expression);
+        // A bare non-call expression (`42`, `enemy.position`, `x + 1`) has no
+        // side effects and silently evaluates to a discarded value. Most often
+        // it means the author wrote something like `send_signal "alert" 42`
+        // and the trailing arg quietly became a stray expression statement.
+        if (stmt.expression.kind !== "CallExpr") {
+          this.#addError(
+            "Statement has no effect — its value is computed and discarded. " +
+            "Did you mean to assign with 'let' or 'set', or pass it as an argument to an action?",
+            stmt.span.line, stmt.span.column,
+          );
+        }
         break;
     }
   }
@@ -454,6 +507,25 @@ export class SemanticAnalyzer {
           const suggestion = findClosestMatch(expr.name, candidates);
           const hint = suggestion ? `. Did you mean '${suggestion}'?` : "";
           this.#addError(`Unknown identifier '${expr.name}'${hint}`, expr.span.line, expr.span.column);
+        } else if (BUILTIN_SENSORS.has(expr.name)
+                   && !this.#constants.has(expr.name)
+                   && !this.#stateVars.has(expr.name)
+                   && !this.#localScopes.some(s => s.has(expr.name))) {
+          // Bare sensor name (no parens) — the compiler can't generate code
+          // for this and would die later with "Unresolved identifier". Catch
+          // it here with a clear message.
+          this.#addError(
+            `Sensor '${expr.name}' must be called with parentheses: '${expr.name}()'`,
+            expr.span.line, expr.span.column,
+          );
+        } else if (this.#functions.has(expr.name)
+                   && !this.#constants.has(expr.name)
+                   && !this.#stateVars.has(expr.name)
+                   && !this.#localScopes.some(s => s.has(expr.name))) {
+          this.#addError(
+            `Function '${expr.name}' must be called with parentheses: '${expr.name}(...)'`,
+            expr.span.line, expr.span.column,
+          );
         } else {
           if (this.#stateMeta.has(expr.name)) this.#stateMeta.get(expr.name).used = true;
           if (this.#constMeta.has(expr.name)) this.#constMeta.get(expr.name).used = true;
@@ -461,8 +533,24 @@ export class SemanticAnalyzer {
         break;
 
       case "CallExpr":
+        // Method-call syntax `obj.method()` arrives with a MemberExpr callee.
+        // Reject it explicitly — without this, the call into findClosestMatch
+        // below tries .toLowerCase() on an object and crashes the compiler.
+        if (typeof expr.callee !== "string") {
+          this.#addError(
+            "Method-call syntax 'obj.method(...)' is not supported. " +
+            "Use a top-level function or sensor instead.",
+            expr.span.line, expr.span.column,
+          );
+          break;
+        }
         if (!BUILTIN_SENSORS.has(expr.callee) && !this.#functions.has(expr.callee)) {
-          const suggestion = findClosestMatch(expr.callee, BUILTIN_SENSORS);
+          // Suggest from BOTH builtins and user-declared functions so a typo
+          // of a user fn finds the right candidate instead of a similarly
+          // spelled builtin.
+          const candidates = new Set(BUILTIN_SENSORS);
+          for (const name of this.#functions.keys()) candidates.add(name);
+          const suggestion = findClosestMatch(expr.callee, candidates);
           const hint = suggestion ? `. Did you mean '${suggestion}'?` : "";
           this.#addError(`Unknown function '${expr.callee}'${hint}`, expr.span.line, expr.span.column);
         } else if (this.#functions.has(expr.callee)) {

@@ -275,9 +275,18 @@ export class Lexer {
         switch (escaped) {
           case "n": value += "\n"; break;
           case "t": value += "\t"; break;
+          case "r": value += "\r"; break;
+          case "0": value += "\0"; break;
           case "\\": value += "\\"; break;
           case '"': value += '"'; break;
-          default: value += escaped;
+          case "'": value += "'"; break;
+          default:
+            // Previously fell through to `value += escaped`, silently turning
+            // `"\z"` into `"z"`. Now raise so typos are caught at lex time.
+            throw new LexerError(
+              `Unknown string escape '\\${escaped}'. Supported: \\n \\t \\r \\0 \\\\ \\" \\'`,
+              startLine, startCol,
+            );
         }
       } else {
         value += this.#advance();

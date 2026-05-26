@@ -294,9 +294,33 @@ function chooseCoverDetour(world, from, to, cover) {
     clamp(vec2(cover.position.x + (cover.width / 2) + margin, cover.position.y), minX, minY, maxX, maxY),
   ];
 
+  // Filter out candidates that sit inside another cover, or that are blocked
+  // from `from` by yet another cover — picking those wedges the bot flush
+  // against the next obstacle with no escape route. If every candidate is
+  // unreachable, fall back to the cheapest one anyway (better to be wedged
+  // briefly than to refuse to move at all).
+  const reachable = candidates.filter(pt => {
+    for (const other of world.covers.values()) {
+      if (other === cover) continue;
+      const halfW = other.width / 2;
+      const halfH = other.height / 2;
+      // Point inside another cover?
+      if (pt.x >= other.position.x - halfW && pt.x <= other.position.x + halfW &&
+          pt.y >= other.position.y - halfH && pt.y <= other.position.y + halfH) {
+        return false;
+      }
+      // Path from start blocked by another cover?
+      if (segmentIntersectsExpandedRect(from, pt, other, ROBOT_RADIUS)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const pool = reachable.length > 0 ? reachable : candidates;
   let bestCost = Infinity;
-  let best = candidates[0];
-  for (const pt of candidates) {
+  let best = pool[0];
+  for (const pt of pool) {
     const cost = distance(from, pt) + distance(pt, to);
     if (cost < bestCost) {
       bestCost = cost;
