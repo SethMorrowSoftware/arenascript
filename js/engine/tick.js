@@ -8,6 +8,7 @@ import { createSensorGateway } from "./sensors.js";
 import { validateAction, categorizeActions } from "./actions.js";
 import { resolveMovement, applyMovement, resolveCollisions } from "./movement.js";
 import { resolveCombat, updateProjectiles, updateCooldowns, applyDamage } from "./combat.js";
+import { getVisibleEnemies } from "./los.js";
 import { VisibilityTracker, checkCooldownReady } from "./events.js";
 import { ReplayWriter } from "./replay.js";
 import { getArenaPreset } from "./arena-presets.js";
@@ -253,14 +254,39 @@ export function runMatch(setup) {
     }
     resolveCollisions(world);
 
-    // Phase 7: Resolve attacks and abilities (+ generate noise)
+    // Phase 7: Resolve attacks and abilities (+ generate noise).
+    // The action was already bucketed as combat by categorizeActions; passing
+    // anything else here would have been silently dropped before — avoid that
+    // class of bug by letting resolveCombat's switch be the single source of
+    // truth for what's a combat action.
     for (const robot of world.getAliveRobots()) {
-      const combatAction = combatActions.get(robot.id);
-      if (combatAction && [
-        "attack", "fire_at", "fire_light", "fire_heavy",
-        "burst_fire", "grenade", "use_ability", "shield",
-        "zap", "vent_heat",
-      ].includes(combatAction.type)) {
+      let combatAction = combatActions.get(robot.id);
+
+      // Overwatch auto-fire: a bot that opened overwatch and didn't queue its
+      // own combat action this tick automatically engages the nearest visible
+      // enemy in attack range. Without this, `overwatch` was a pure movement
+      // restriction with no offensive benefit.
+      if (!combatAction && robot.overwatchActive && tick < robot.overwatchExpiresTick) {
+        const stats = CLASS_STATS[robot.class] || {};
+        const range = stats.attackRange ?? 8;
+        const visible = getVisibleEnemies(world, robot);
+        let nearest = null;
+        let nearestD = Infinity;
+        for (const e of visible) {
+          const dx = e.position.x - robot.position.x;
+          const dy = e.position.y - robot.position.y;
+          const d = Math.hypot(dx, dy);
+          if (d <= range && d < nearestD) {
+            nearest = e;
+            nearestD = d;
+          }
+        }
+        if (nearest) {
+          combatAction = { robotId: robot.id, type: "fire_at", target: { x: nearest.position.x, y: nearest.position.y } };
+        }
+      }
+
+      if (combatAction) {
         resolveCombat(world, robot, combatAction);
         // Generate noise from combat
         if (combatAction.type === "grenade") {

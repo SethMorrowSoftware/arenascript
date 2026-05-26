@@ -91,15 +91,6 @@ export function validateAction(intent, robot) {
       return { intent: normalized, valid: true };
     }
 
-    case "use_ability": {
-      const abilityName = normalized.ability ?? "unknown";
-      const cd = robot.cooldowns.get(abilityName) ?? 0;
-      if (cd > 0) {
-        return { intent: normalized, valid: false, reason: `Ability '${abilityName}' on cooldown` };
-      }
-      return { intent: normalized, valid: true };
-    }
-
     case "move_to":
     case "move_toward":
     case "move_forward":
@@ -110,9 +101,6 @@ export function validateAction(intent, robot) {
     case "strafe_right":
     case "stop":
     case "retreat":
-    case "mark_target":
-    case "capture":
-    case "ping":
     case "cloak":
     case "self_destruct":
     case "place_mine":
@@ -135,7 +123,7 @@ export function categorizeActions(actions) {
   ]);
   const combatTypes = new Set([
     "attack", "fire_at", "fire_light", "fire_heavy", "burst_fire", "grenade",
-    "use_ability", "shield", "zap", "vent_heat",
+    "shield", "zap", "vent_heat",
   ]);
   const utilityTypes = new Set([
     "place_mine", "send_signal", "mark_position", "taunt", "overwatch",

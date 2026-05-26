@@ -364,12 +364,17 @@ export class VM {
             const bodyEnd = this.readU16();
             const delay = Math.max(1, this.popNum());
             const bodyStart = this.ip; // body begins right after the opcode+operand
-            this.timers.push({
-              triggerTick: this.currentTick + delay,
-              bodyOffset: bodyStart,
-              repeat: false,
-              interval: 0,
-            });
+            // Dedupe: don't register the same (one-shot) body twice. Without
+            // this, an `after N { ... }` inside `on tick` would queue a new
+            // timer every tick.
+            if (!this.timers.some(t => t.bodyOffset === bodyStart && !t.repeat)) {
+              this.timers.push({
+                triggerTick: this.currentTick + delay,
+                bodyOffset: bodyStart,
+                repeat: false,
+                interval: 0,
+              });
+            }
             this.ip = bodyEnd; // skip past the body
             break;
           }
@@ -378,6 +383,13 @@ export class VM {
             const bodyEnd = this.readU16();
             const interval = Math.max(1, this.popNum());
             const bodyStart = this.ip;
+            // Dedupe by body offset — `every N { ... }` inside `on tick` would
+            // otherwise register a new repeating timer every single tick and
+            // grow unbounded.
+            if (this.timers.some(t => t.bodyOffset === bodyStart && t.repeat)) {
+              this.ip = bodyEnd;
+              break;
+            }
             this.timers.push({
               triggerTick: this.currentTick + interval,
               bodyOffset: bodyStart,
@@ -499,10 +511,8 @@ export class VM {
     if (args.length > 0) {
       const arg = args[0];
       if (typeof arg === "string") {
-        // String args: signal data, waypoint names, ability names, entity IDs
-        if (actionName === "use_ability") {
-          intent.ability = arg;
-        } else if (actionName === "send_signal" || actionName === "mark_position") {
+        // String args: signal data, waypoint names, entity IDs
+        if (actionName === "send_signal" || actionName === "mark_position") {
           intent.data = arg;
         } else {
           intent.target = arg;

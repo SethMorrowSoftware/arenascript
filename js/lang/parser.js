@@ -7,9 +7,8 @@ import { TokenType } from "./tokens.js";
 // Known action keywords that take arguments directly (no parens)
 const ACTION_KEYWORDS = new Set([
   "move_to", "move_toward", "strafe_left", "strafe_right", "stop",
-  "attack", "fire_at", "use_ability", "shield", "retreat",
+  "attack", "fire_at", "shield", "retreat",
   "burst_fire", "grenade",
-  "mark_target", "capture", "ping",
   "move_forward", "move_backward", "turn_left", "turn_right",
   "place_mine", "send_signal", "mark_position", "taunt", "overwatch",
   // Resource economy + advanced combat

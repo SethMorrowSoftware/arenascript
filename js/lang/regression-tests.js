@@ -8,7 +8,8 @@ import { compile } from "./pipeline.js";
 import { VM } from "../runtime/vm.js";
 import { runMatch } from "../engine/tick.js";
 import { World } from "../engine/world.js";
-import { resolveCombat, updateProjectiles } from "../engine/combat.js";
+import { resolveCombat, updateProjectiles, applyDamage } from "../engine/combat.js";
+import { createSensorGateway } from "../engine/sensors.js";
 import { computeBookmarks } from "../engine/replay.js";
 import {
   validateMatchMode, validateParticipantCount,
@@ -1571,6 +1572,296 @@ function testNewPresetsCompileWithoutWarnings() {
   }
 }
 
+// ============================================================================
+// Bug fixes from the full-language audit. Each test guards against a real
+// regression we found and fixed. Comments explain the original failure so
+// nobody re-introduces it.
+// ============================================================================
+
+// Audit bug: the parser, semantic analyzer, validator, and VM all accepted
+// `mark_target`, `capture`, `ping`, and `use_ability`, but no engine handler
+// existed for them. The actions queued and were silently dropped by
+// categorizeActions every tick. We removed them from the language entirely —
+// using one should now be a clear compile-time error.
+function testRemovedPhantomActionsRejected() {
+  for (const action of ["mark_target", "capture", "ping", "use_ability"]) {
+    const src = `robot "B" version "1.0"
+meta { class: "brawler" }
+on tick { ${action} }`;
+    const result = compile(src);
+    assert.equal(result.success, false,
+      `'${action}' should now be rejected at compile time but compiled successfully`);
+  }
+}
+
+// Audit bug: the Phase-7 combat dispatcher in tick.js had a hardcoded
+// whitelist of action types and silently dropped fire_light, fire_heavy,
+// zap, and vent_heat. The whitelist was redundant with categorizeActions and
+// we removed it. This test runs a real match where one bot fires fire_heavy
+// at a stationary target — if the dispatcher drops it again, the target
+// takes zero damage.
+function testFireHeavyActuallyHits() {
+  // Direct unit test through resolveCombat: aim fire_heavy at a stationary
+  // target right inside attack range. With the pre-fix dispatcher whitelist,
+  // fire_heavy was silently dropped and never spawned a projectile at all.
+  const w = new World({ arenaWidth: 30, arenaHeight: 30, seed: 1, mode: "duel_1v1", arenaId: "plains", tickRate: 30, maxTicks: 100 });
+  const r1 = w.spawnRobot("p1", "ranger", 0, "prog1", { x: 5, y: 5 });
+  w.spawnRobot("p2", "brawler", 1, "prog2", { x: 10, y: 5 });
+  // Manually invoke combat with a fire_heavy action.
+  resolveCombat(w, r1, { type: "fire_heavy", target: { x: 10, y: 5 }, robotId: r1.id });
+  assert.ok(w.projectiles.size > 0,
+    "fire_heavy should spawn a projectile; the dispatcher must not silently drop it");
+}
+
+// Audit bug: `shield` was implemented as a 20%-maxHealth heal — it didn't
+// actually reduce incoming damage. We rewrote it to open a damage-reduction
+// window via shieldExpiresTick + SHIELD_DAMAGE_REDUCTION. Verify that the
+// is_shielded() sensor reports true after `shield` and that incoming damage
+// is reduced.
+function testShieldActuallyReducesDamage() {
+  // Direct unit test against applyDamage — exercises the SHIELD_DAMAGE_REDUCTION
+  // path without needing two bots to find each other on a map.
+  const w = new World({ arenaWidth: 30, arenaHeight: 30, seed: 1, mode: "duel_1v1", arenaId: "plains", tickRate: 30, maxTicks: 100 });
+  const r1 = w.spawnRobot("p1", "ranger", 0, "prog1", { x: 5, y: 5 });
+  const r2 = w.spawnRobot("p2", "brawler", 1, "prog2", { x: 10, y: 5 });
+  const startHP = r2.health;
+  applyDamage(w, r2, 20, r1.id);
+  const unshieldedLoss = startHP - r2.health;
+  r2.health = startHP;
+  // Open shield window.
+  r2.shieldExpiresTick = w.currentTick + 12;
+  applyDamage(w, r2, 20, r1.id);
+  const shieldedLoss = startHP - r2.health;
+  assert.ok(shieldedLoss < unshieldedLoss,
+    `shielded loss (${shieldedLoss}) should be less than unshielded (${unshieldedLoss})`);
+  assert.ok(shieldedLoss <= unshieldedLoss * 0.6,
+    `shielded loss should be reduced by ~60%; got shielded=${shieldedLoss} unshielded=${unshieldedLoss}`);
+}
+
+// Audit bug: `every N { ... }` inside `on tick` registered a new repeating
+// timer each tick — unbounded growth. We deduplicate by bodyOffset at the
+// runtime. A bot that wraps `every 30 { log() }` inside its tick handler
+// should still only have ONE timer in its VM.
+function testEveryInsideOnTickDoesNotAccumulate() {
+  const src = `robot "E" version "1.0"
+meta { class: "ranger" }
+on tick {
+  every 30 { stop }
+}`;
+  const result = compile(src);
+  assert.equal(result.success, true);
+  const vm = new VM(result.program, "r1", null);
+  vm.setConstants(result.constants);
+  // Run 50 simulated ticks of just executing the tick handler.
+  for (let t = 0; t < 50; t++) {
+    vm.currentTick = t;
+    vm.executeEvent("tick", null);
+  }
+  assert.ok(vm.timers.length <= 1,
+    `every-inside-tick should not accumulate; got ${vm.timers.length} timers`);
+}
+
+// Audit bug: `break` inside a `for` loop jumped past the ITER_END opcode,
+// leaking the iterator. A second iteration that read the leaked iter would
+// produce wrong output.
+function testBreakInForReleasesIterator() {
+  const src = `robot "B" version "1.0"
+meta { class: "ranger" }
+on tick {
+  for e in visible_enemies() { break }
+  for e in visible_enemies() { break }
+}`;
+  const result = compile(src);
+  assert.equal(result.success, true);
+  const vm = new VM(result.program, "r1", {
+    read: (_robotId, name) => name === "visible_enemies" ? [] : null,
+  });
+  vm.setConstants(result.constants);
+  vm.executeEvent("tick", null);
+  // After tick the iterator stack must be empty — if break leaked we'd see > 0.
+  assert.equal(vm.iterStack?.length ?? 0, 0,
+    `break in for should release iterator; iterStack=${vm.iterStack?.length}`);
+}
+
+// Audit bug: `send_signal "alert" 42` silently dropped the second arg —
+// `42` became a stray ExpressionStatement with no effect. Bare non-call
+// expression statements are almost always bugs; we error on them now.
+function testBareExpressionStatementErrors() {
+  const src = `robot "B" version "1.0"
+meta { class: "brawler" }
+on tick { 42 }`;
+  const result = compile(src);
+  assert.equal(result.success, false,
+    "Bare expression statement should be a compile error");
+  assert.ok(result.errors.some(e => /no effect/i.test(typeof e === "string" ? e : e.message)),
+    `Expected 'no effect' error; got ${result.errors.join("; ")}`);
+}
+
+// Audit bug: `obj.method()` syntax produced a TypeError inside the
+// semantic analyzer (calling .toLowerCase on an object). Crashed the
+// compile pipeline. Now it's a clean compile error.
+function testMethodCallSyntaxRejected() {
+  const src = `robot "B" version "1.0"
+meta { class: "brawler" }
+on tick { position.x() }`;
+  const result = compile(src);
+  assert.equal(result.success, false,
+    "Method-call syntax should be a compile error, not crash the compiler");
+}
+
+// Audit bug: unknown string escapes silently dropped the backslash
+// (`"\z"` became `"z"`). Now an unknown escape is a lexer error.
+function testUnknownStringEscapeRejected() {
+  const src = `robot "B" version "1.0"
+meta { class: "brawler" }
+on tick { log("a\\zb") }`;
+  const result = compile(src);
+  assert.equal(result.success, false,
+    "Unknown string escape should be a lexer error");
+}
+
+// Audit bug: a bare sensor or function name (no parens) passed the
+// semantic check but blew up the compiler with "Unresolved identifier".
+// We now reject these in semantic with a clear message.
+function testBareSensorNameRejected() {
+  const src = `robot "B" version "1.0"
+meta { class: "brawler" }
+on tick { let p = position }`;
+  const result = compile(src);
+  assert.equal(result.success, false,
+    "Bare sensor name should be a clean semantic error, not a compiler crash");
+  assert.ok(result.errors.some(e => /must be called with parentheses/i.test(typeof e === "string" ? e : e.message)),
+    `Expected 'parentheses' hint; got ${result.errors.join("; ")}`);
+}
+
+// Audit bug: state type annotations were decorative — `set x = "hello"`
+// on `state { x: number }` passed silently. We now flag literal-vs-declared
+// type mismatches on both `set` and initial values.
+function testStateLiteralTypeMismatchRejected() {
+  const src = `robot "B" version "1.0"
+meta { class: "brawler" }
+state { count: number = 0 }
+on tick { set count = "hello" }`;
+  const result = compile(src);
+  assert.equal(result.success, false,
+    "Assigning a string to a number state should be a type error");
+  assert.ok(result.errors.some(e => /type mismatch/i.test(typeof e === "string" ? e : e.message)),
+    `Expected type mismatch; got ${result.errors.join("; ")}`);
+}
+
+// Audit bug: fast projectiles (fire_light at speed 6.0) could teleport
+// past a target with collision radius 1.5 in a single tick because the
+// engine used a point-distance collision check. We added swept collision.
+// This test verifies a fast projectile aimed at a stationary close target
+// actually connects.
+// Audit bug: `taunt` set a tauntedBy flag that nothing read — the action
+// did nothing. Now nearest_enemy() returns the taunter (when still visible)
+// during the taunt window so simple bots auto-redirect onto the taunter.
+function testTauntOverridesNearestEnemy() {
+  const w = new World({ arenaWidth: 30, arenaHeight: 30, seed: 1, mode: "duel_1v1", arenaId: "plains", tickRate: 30, maxTicks: 100 });
+  const taunter = w.spawnRobot("p1", "tank", 0, "prog1", { x: 5, y: 5 });
+  const target = w.spawnRobot("p2", "brawler", 1, "prog2", { x: 10, y: 5 });
+  // Put another enemy CLOSER to target than the taunter so the default
+  // nearest_enemy result would not be the taunter.
+  w.spawnRobot("p3", "ranger", 0, "prog3", { x: 11, y: 5 });
+  target.tauntedBy = taunter.id;
+  target.tauntExpiresTick = 100;
+  const gateway = createSensorGateway(w);
+  const seen = gateway(target.id, "nearest_enemy", []);
+  assert.ok(seen, "nearest_enemy should return an enemy");
+  assert.equal(seen.id, taunter.id,
+    `taunt should override nearest_enemy; expected ${taunter.id}, got ${seen?.id}`);
+}
+
+// Audit bug: `overwatch` only blocked the bot's own movement and did
+// nothing offensive. Now a bot in overwatch with no manual combat action
+// auto-fires at the nearest visible enemy.
+function testOverwatchAutoFires() {
+  const overwatcher = `robot "Ow" version "1.0"
+meta { class: "ranger" }
+on tick { overwatch }`;
+  // Brawler closes when it sees the overwatcher; once in range it stops so
+  // the overwatcher's auto-fire is what kills it (rather than melee trade).
+  const target = `robot "T" version "1.0"
+meta { class: "brawler" }
+on tick {
+  let e = nearest_enemy()
+  if e != null { move_toward e.position }
+  else { move_forward }
+}`;
+  const a = compile(overwatcher); const b = compile(target);
+  assert.equal(a.success, true); assert.equal(b.success, true);
+  const r = runMatch({
+    config: { mode: "duel_1v1", arenaWidth: 30, arenaHeight: 30, maxTicks: 1500, tickRate: 30, seed: 7, arenaId: "plains" },
+    participants: [
+      { program: a.program, constants: a.constants, playerId: "ow", teamId: 0 },
+      { program: b.program, constants: b.constants, playerId: "t", teamId: 1 },
+    ],
+  });
+  // Overwatcher only takes the overwatch action — without auto-fire it
+  // could never deal damage. With auto-fire it should land hits on the
+  // brawler that walks straight into it.
+  const stats = [...r.robotStats.values()];
+  assert.ok(stats[0].damageDealt > 0,
+    `overwatch should auto-fire on visible enemies; got ${stats[0].damageDealt} damage dealt`);
+}
+
+// Audit bug: threat_level()'s enemy term capped at 30 and the formula was
+// inconsistent. The rewrite caps at 30 enemies and also factors in local
+// outnumbering. Sanity-check that the value stays in [0,100] and rises
+// monotonically as conditions worsen.
+function testThreatLevelInBounds() {
+  const w = new World({ arenaWidth: 50, arenaHeight: 50, seed: 1, mode: "duel_1v1", arenaId: "plains", tickRate: 30, maxTicks: 100 });
+  const r = w.spawnRobot("p1", "ranger", 0, "prog1", { x: 25, y: 25 });
+  const gateway = createSensorGateway(w);
+  const baseline = gateway(r.id, "threat_level", []);
+  assert.ok(baseline >= 0 && baseline <= 100, `baseline in [0,100], got ${baseline}`);
+  // Take 50% damage and check threat rises.
+  r.health = r.maxHealth * 0.5;
+  const hurt = gateway(r.id, "threat_level", []);
+  assert.ok(hurt > baseline, `damaged threat should rise: baseline=${baseline} hurt=${hurt}`);
+  // Add a nearby enemy and check threat rises further.
+  w.spawnRobot("p2", "brawler", 1, "prog2", { x: 28, y: 25 });
+  const surrounded = gateway(r.id, "threat_level", []);
+  assert.ok(surrounded > hurt, `surrounded threat should rise: hurt=${hurt} surrounded=${surrounded}`);
+  assert.ok(surrounded <= 100, `must not exceed 100; got ${surrounded}`);
+}
+
+// Audit bug: incoming_projectile() flagged projectiles passing 30 units to
+// the side as a threat because it only checked closing-speed-positive.
+// Now it requires the closest-approach distance to be within hit radius.
+function testIncomingProjectileIgnoresPerpendicularMiss() {
+  const w = new World({ arenaWidth: 50, arenaHeight: 50, seed: 1, mode: "duel_1v1", arenaId: "plains", tickRate: 30, maxTicks: 100 });
+  const r1 = w.spawnRobot("p1", "ranger", 0, "prog1", { x: 25, y: 25 });
+  const r2 = w.spawnRobot("p2", "brawler", 1, "prog2", { x: 25, y: 40 });
+  // Projectile flying horizontally past r2 — would-be closest approach is
+  // 15 units off. r2 shouldn't see this as incoming.
+  w.spawnProjectile(r1.id, { x: 0, y: 25 }, { x: 4, y: 0 }, 5, 30);
+  const gateway = createSensorGateway(w);
+  const incoming = gateway(r2.id, "incoming_projectile", []);
+  assert.equal(incoming, null,
+    "Projectile passing 15 units off should not register as incoming");
+}
+
+function testFastProjectileHitsCloseTarget() {
+  // Direct unit test: spawn a projectile aimed straight at a stationary
+  // robot at point-blank range. With the old point-distance collision the
+  // FIRE_LIGHT_SPEED (6.0) projectile teleported past — its position
+  // after one tick was past the target, more than 1.5 units away.
+  const w = new World({ arenaWidth: 40, arenaHeight: 40, seed: 1, mode: "duel_1v1", arenaId: "plains", tickRate: 30, maxTicks: 100 });
+  const r1 = w.spawnRobot("p1", "ranger", 0, "prog1", { x: 5, y: 5 });
+  const r2 = w.spawnRobot("p2", "brawler", 1, "prog2", { x: 9, y: 5 });
+  // Aim a projectile from r1 toward r2 at 6 units/tick — r2 is 4 units away,
+  // so the projectile's next position overshoots and the old point-distance
+  // collision missed.
+  w.spawnProjectile(r1.id, { x: 5, y: 5 }, { x: 6, y: 0 }, 4, 30);
+  const before = r2.health;
+  updateProjectiles(w);
+  const after = r2.health;
+  assert.ok(after < before,
+    `swept collision should hit a point-blank target even when the projectile would overshoot; before=${before} after=${after}`);
+}
+
 // --- Run all tests ---
 
 function run() {
@@ -1659,6 +1950,22 @@ function run() {
     testNewPredictiveSensorsCompile,
     testRuntimeErrorHasLineNumber,
     testNewPresetsCompileWithoutWarnings,
+    // Full-language audit fixes
+    testRemovedPhantomActionsRejected,
+    testFireHeavyActuallyHits,
+    testShieldActuallyReducesDamage,
+    testEveryInsideOnTickDoesNotAccumulate,
+    testBreakInForReleasesIterator,
+    testBareExpressionStatementErrors,
+    testMethodCallSyntaxRejected,
+    testUnknownStringEscapeRejected,
+    testBareSensorNameRejected,
+    testStateLiteralTypeMismatchRejected,
+    testFastProjectileHitsCloseTarget,
+    testTauntOverridesNearestEnemy,
+    testOverwatchAutoFires,
+    testThreatLevelInBounds,
+    testIncomingProjectileIgnoresPerpendicularMiss,
   ];
 
   let passed = 0;

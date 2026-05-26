@@ -41,8 +41,11 @@ export const LOW_HEALTH_THRESHOLD = 25;
 export const ACTIVE_SCAN_RANGE = 22.0;
 export const ACTIVE_SCAN_MEMORY_TICKS = 45;
 // --- Abilities ---
-export const SHIELD_DURATION = 3; // ticks
+// While shielded, incoming damage is multiplied by (1 - SHIELD_DAMAGE_REDUCTION).
+// Duration is short enough that a bot must time it to a known incoming burst.
+export const SHIELD_DURATION = 12; // ticks
 export const SHIELD_COOLDOWN = 30;
+export const SHIELD_DAMAGE_REDUCTION = 0.6; // 60% damage taken while shielded
 export const DASH_DISTANCE = 5.0;
 export const DASH_COOLDOWN = 20;
 // --- Budget ---

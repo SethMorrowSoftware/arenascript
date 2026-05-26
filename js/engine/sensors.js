@@ -185,6 +185,12 @@ export function createSensorGateway(world, options = {}) {
       case "cloak_remaining":
         return robot.cloakActive ? Math.max(0, robot.cloakExpiresTick - world.currentTick) : 0;
 
+      // --- Shield state ---
+      case "is_shielded":
+        return (robot.shieldExpiresTick ?? 0) > world.currentTick;
+      case "shield_remaining":
+        return Math.max(0, (robot.shieldExpiresTick ?? 0) - world.currentTick);
+
       // --- Self-destruct countdown ---
       case "self_destruct_armed":
         return (robot.selfDestructTick ?? 0) > 0;
@@ -253,6 +259,18 @@ export function createSensorGateway(world, options = {}) {
 
       // --- Enemy Sensors ---
       case "nearest_enemy": {
+        // If we're currently taunted, the taunter takes priority over the
+        // geometric nearest — provided they're still alive and visible.
+        // This is what makes `taunt` a real combat tool instead of a no-op.
+        if (robot.tauntedBy && world.currentTick < robot.tauntExpiresTick) {
+          const taunter = world.getRobot(robot.tauntedBy);
+          if (taunter && taunter.alive) {
+            const visible = getVisibleEnemies(world, robot);
+            if (visible.find(e => e.id === taunter.id)) {
+              return mapRobotView(taunter);
+            }
+          }
+        }
         const visible = getVisibleEnemies(world, robot);
         if (visible.length === 0) return null;
         return mapRobotView(visible[0]);
@@ -846,6 +864,9 @@ export function createSensorGateway(world, options = {}) {
 
       // predict_position(enemy, ticks) -> position | null
       //   Linear extrapolation — naive but good enough for lead-shot bots.
+      //   Uses the same 0.01-rounded velocity that bots see via
+      //   `enemy_velocity()` so a lead computation that matches the sensor
+      //   matches the engine's actual movement.
       case "predict_position": {
         const e = args[0];
         const ticks = Math.max(0, Math.floor(toNum(args[1] ?? 5)));
@@ -853,8 +874,10 @@ export function createSensorGateway(world, options = {}) {
         const targetId = typeof e === "string" ? e : e.id;
         const target = world.robots.get(targetId);
         if (!target || !target.alive) return null;
-        const px = target.position.x + (target.velocity?.x ?? 0) * ticks;
-        const py = target.position.y + (target.velocity?.y ?? 0) * ticks;
+        const vx = Math.round((target.velocity?.x ?? 0) * 100) / 100;
+        const vy = Math.round((target.velocity?.y ?? 0) * 100) / 100;
+        const px = target.position.x + vx * ticks;
+        const py = target.position.y + vy * ticks;
         return {
           x: Math.max(0, Math.min(world.config.arenaWidth, px)),
           y: Math.max(0, Math.min(world.config.arenaHeight, py)),
@@ -862,10 +885,15 @@ export function createSensorGateway(world, options = {}) {
       }
 
       // incoming_projectile() -> { position, direction, distance, ticks_to_impact } | null
-      //   Finds the projectile closest to hitting this robot within vision range.
-      //   Returns null if no threat is near — lets bots write simple dodge logic.
+      //   Finds the projectile closest to actually hitting this robot.
+      //   Previously this only checked closing-speed > 0, so a projectile
+      //   passing 30 units to the side at any closing angle registered as a
+      //   threat. Now we also compute the closest-approach distance along
+      //   the projectile's path and ignore anything that won't pass within
+      //   the robot's hit radius + a small safety margin.
       case "incoming_projectile": {
         const visionRange = CLASS_STATS[robot.class]?.visionRange ?? DEFAULT_VISION_RANGE;
+        const MISS_MARGIN = 3.0; // hit radius 1.5 + 1.5 safety
         let best = null;
         let bestTicks = Infinity;
         for (const proj of world.projectiles.values()) {
@@ -876,12 +904,18 @@ export function createSensorGateway(world, options = {}) {
           const dy = robot.position.y - proj.position.y;
           const dist = Math.hypot(dx, dy);
           if (dist > visionRange) continue;
-          // Relative velocity projection — positive means closing on us.
           const vlen = Math.hypot(proj.velocity.x, proj.velocity.y);
           if (vlen < 1e-6) continue;
-          const closingSpeed = (proj.velocity.x * dx + proj.velocity.y * dy) / dist;
-          if (closingSpeed <= 0.1) continue; // moving away or parallel
-          const ticksToImpact = dist / vlen;
+          // Project (robot - proj) onto velocity direction to get how long until
+          // the projectile is at its closest approach. Negative = already past.
+          const tClose = (proj.velocity.x * dx + proj.velocity.y * dy) / (vlen * vlen);
+          if (tClose <= 0) continue;
+          // Perpendicular miss distance at closest approach.
+          const cx = proj.position.x + proj.velocity.x * tClose;
+          const cy = proj.position.y + proj.velocity.y * tClose;
+          const missDist = Math.hypot(robot.position.x - cx, robot.position.y - cy);
+          if (missDist > MISS_MARGIN) continue;
+          const ticksToImpact = tClose;
           if (ticksToImpact < bestTicks) {
             bestTicks = ticksToImpact;
             best = {
@@ -914,19 +948,39 @@ export function createSensorGateway(world, options = {}) {
       }
 
       // threat_level() -> number (0-100)
-      //   Quick-and-dirty "how bad is my situation" heuristic so bots can
-      //   gate their aggressive/defensive branch on a single scalar.
-      //   Factors: low health, many visible enemies, overheated, low ammo.
+      //   "How bad is my situation" heuristic. Returns a single scalar so
+      //   bots can gate aggressive/defensive branches without composing
+      //   five sensors.
+      //
+      //   Components (max 100 total):
+      //     35 — HP loss (linear)
+      //     30 — Enemy pressure (10 per visible enemy, up to 3)
+      //     10 — Overheated (binary)
+      //     10 — Low ammo (<25%)
+      //     10 — Outnumbered by visible allies in 16-unit radius
+      //      5 — Hit within the last 10 ticks
       case "threat_level": {
         let threat = 0;
         if (robot.maxHealth > 0) {
           const hpLoss = 1 - (robot.health / robot.maxHealth);
-          threat += hpLoss * 40;
+          threat += hpLoss * 35;
         }
-        const enemies = getVisibleEnemies(world, robot).length;
-        threat += Math.min(enemies * 15, 30);
-        if (robot.overheated) threat += 15;
-        if (robot.maxAmmo > 0 && robot.ammo / robot.maxAmmo < 0.15) threat += 10;
+        const visEnemies = getVisibleEnemies(world, robot);
+        threat += Math.min(visEnemies.length * 10, 30);
+        if (robot.overheated) threat += 10;
+        if (robot.maxAmmo > 0 && robot.ammo / robot.maxAmmo < 0.25) threat += 10;
+        // Local outnumbering: count enemies vs allies within 16 units.
+        let nearEnemies = 0;
+        let nearAllies = 0;
+        for (const other of world.robots.values()) {
+          if (!other.alive || other.id === robot.id) continue;
+          const dx = other.position.x - robot.position.x;
+          const dy = other.position.y - robot.position.y;
+          if (dx * dx + dy * dy > 256) continue;  // 16^2
+          if (other.teamId === robot.teamId) nearAllies++;
+          else nearEnemies++;
+        }
+        if (nearEnemies > nearAllies + 1) threat += 10;
         if (robot.memory.lastDamage && world.currentTick - robot.memory.lastDamage.tick < 10) threat += 5;
         return Math.max(0, Math.min(100, Math.round(threat)));
       }

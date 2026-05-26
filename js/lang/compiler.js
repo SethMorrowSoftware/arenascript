@@ -386,12 +386,13 @@ export class Compiler {
         for (const off of ctx.continues) b.patchJump(off);
         // Jump back to loop start
         b.emitWithOperand(Op.JMP, loopStart);
+        // Both natural exit (ITER_NEXT exhausted) and `break` need to pop
+        // the iterator. Patch break targets BEFORE the ITER_END so the same
+        // cleanup runs on either path. Previously break jumped *past* the
+        // ITER_END, leaking the iterator and corrupting nested for-loops.
         b.patchJump(exitJump);
-        b.emit(Op.ITER_END);
-        // `break` jumps past the ITER_END so the iterator stack still pops
-        // via an explicit cleanup emitted before the forward jump. We emit
-        // an extra ITER_END after break-target so state stays balanced.
         for (const off of ctx.breaks) b.patchJump(off);
+        b.emit(Op.ITER_END);
         break;
       }
 
